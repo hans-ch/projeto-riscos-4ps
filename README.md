@@ -1,7 +1,8 @@
 #Projeto de Análise de Riscos 4P's
 
-
 ##Passo a passo para inicializar o projeto python e suas depenencias
+
+###Usando pip
 ```text
 # 1. Criar o ambiente virtual
 python -m venv .venv
@@ -16,6 +17,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. Rodar o projeto
-streamlit run app.py
+streamlit run src/app/main.py
 
+```
+
+###Usando uv
+```text
+# 1. Sincronizar o projeto uv
+uv sync
+
+# 2. Rodar o projeto
+uv run streamlit run src/app/main.py
 ```
