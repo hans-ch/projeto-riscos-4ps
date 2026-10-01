@@ -14,13 +14,9 @@ conn = sqlite3.connect(PASTA_DB)
 cursor = conn.cursor()
 
 
-cursor.execute(""" 
-    CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL,
-    email TEXT UNIQUE
-    );
-""")
+#cursor.execute
 
 conn.commit()
 conn.close()
+
+print(f"Banco de dados criado com sucesso em: {PASTA_DB}")
