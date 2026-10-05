@@ -14,7 +14,7 @@ conn = sqlite3.connect(PASTA_DB)
 cursor = conn.cursor()
 
 
-#cursor.execute
+
 
 conn.commit()
 conn.close()
