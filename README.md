@@ -17,7 +17,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. Rodar o projeto
-streamlit run src/app/main.py
+streamlit run app.py
 
 ```
 
@@ -27,5 +27,5 @@ streamlit run src/app/main.py
 uv sync
 
 # 2. Rodar o projeto
-uv run streamlit run src/app/main.py
+uv run streamlit run app.py
 ```

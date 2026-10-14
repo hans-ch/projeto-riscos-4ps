@@ -15,11 +15,226 @@ from pyfair import FairModel, FairMetaModel, FairSimpleReport
 # CONFIGURAÇÕES INICIAIS STREAMLIT
 # ==========================================
 st.set_page_config(page_title="Análise FAIR - Riscos", layout="wide")
-st.title("🛡️ Matriz de Riscos 4Ps: Análise OpenFAIR")
-st.markdown("Sistema Analítico Quantitativo de Riscos e Controles")
+st.markdown(
+    """
+    <style>
+        :root {
+            --pine: #174b40;
+            --pine-deep: #10372f;
+            --ink: #1c302b;
+            --muted: #66756f;
+            --paper: #ffffff;
+            --canvas: #eef3f0;
+            --line: #d8e2dc;
+            --coral: #e47756;
+            --gold: #d9ad5b;
+        }
+
+        [data-testid="stAppViewContainer"] {
+            color: var(--ink);
+            background: linear-gradient(145deg, #f5f7f4 0%, var(--canvas) 62%, #e8efeb 100%);
+        }
+
+        [data-testid="stHeader"] { background: transparent; }
+
+        [data-testid="stMainBlockContainer"] {
+            max-width: 1480px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
+
+        [data-testid="stSidebar"] {
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
+            background: linear-gradient(165deg, #153d35 0%, #102f2a 100%);
+        }
+
+        [data-testid="stSidebar"] > div:first-child { background: transparent; }
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3 { color: #f4f6f1; }
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label { color: #c7d5ce; }
+
+        [data-testid="stSidebar"] button[kind="primary"] {
+            min-height: 48px;
+            border: 0;
+            border-radius: 4px;
+            background: var(--coral);
+            color: white;
+            font-weight: 700;
+        }
+
+        [data-testid="stSidebar"] button[kind="primary"]:hover {
+            background: #d76546;
+            color: white;
+        }
+
+        .app-masthead {
+            position: relative;
+            overflow: hidden;
+            padding: 30px 36px 32px;
+            border-bottom: 5px solid var(--coral);
+            border-radius: 6px;
+            background: linear-gradient(112deg, #123b33 0%, #1b584b 72%, #276b5d 100%);
+            color: white;
+        }
+
+        .app-masthead::after {
+            position: absolute;
+            top: 0;
+            right: 10%;
+            width: 1px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.12);
+            content: "";
+        }
+
+        .app-kicker {
+            margin: 0 0 10px;
+            color: #e7bc78;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+        }
+
+        .app-masthead h1 {
+            margin: 0;
+            color: #fff;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 38px;
+            font-weight: 400;
+            line-height: 1.15;
+        }
+
+        .app-masthead p:last-child {
+            margin: 10px 0 0;
+            color: #d5e1db;
+            font-size: 14px;
+        }
+
+        .app-meta-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 32px;
+            padding: 14px 4px 16px;
+            border-bottom: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .app-meta-strip strong {
+            margin-left: 6px;
+            color: var(--ink);
+            font-weight: 650;
+        }
+
+        [data-testid="stMetric"] {
+            min-height: 112px;
+            padding: 17px 18px;
+            border: 1px solid var(--line);
+            border-top: 3px solid var(--pine);
+            border-radius: 4px;
+            background: var(--paper);
+        }
+
+        [data-testid="stMetricLabel"] p {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: var(--pine-deep);
+            font-family: Georgia, "Times New Roman", serif;
+        }
+
+        [data-testid="stDataFrame"] {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: var(--paper);
+        }
+
+        [data-testid="stAlert"] { border-radius: 4px; }
+
+        .empty-state {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-top: 24px;
+            padding: 24px;
+            border: 1px solid var(--line);
+            border-left: 4px solid var(--gold);
+            background: rgba(255, 255, 255, 0.75);
+        }
+
+        .empty-state-mark {
+            color: var(--coral);
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 32px;
+        }
+
+        .empty-state strong { color: var(--pine-deep); }
+        .empty-state p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+        @media (max-width: 700px) {
+            [data-testid="stMainBlockContainer"] { padding: 1rem 1rem 2rem; }
+            .app-masthead { padding: 24px 20px; }
+            .app-masthead h1 { font-size: 30px; }
+            .app-masthead::after { right: 7%; }
+            .app-meta-strip { gap: 8px 18px; }
+            .empty-state { align-items: flex-start; padding: 18px; }
+        }
+    </style>
+
+    <div class="app-masthead">
+        <p class="app-kicker">Segurança operacional / OpenFAIR</p>
+        <h1>Risco em perspectiva</h1>
+        <p>Análise quantitativa de exposição, controles e perda residual.</p>
+    </div>
+    <div class="app-meta-strip">
+        <span>MODELO<strong>FAIR</strong></span>
+        <span>SIMULAÇÕES<strong>10.000 por risco</strong></span>
+        <span>FONTE<strong>Base SQLite local</strong></span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 PASTA_DB = BASE_DIR / "DataBase.db"
+CSS_RELATORIO = """
+<style>
+    :root { --forest: #174f45; --ink: #173c35; --mint: #e8f1ed; --line: #dce5df; --coral: #e77b5b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f2f5f2; color: var(--ink); font: 15px/1.55 "Segoe UI", sans-serif; }
+    #main { display: flex; flex-direction: column; gap: 18px; width: min(100% - 40px, 1440px); margin: 24px auto 48px; }
+    #band { display: flex; align-items: center; min-height: 130px; padding: 24px 32px; background: #103a34; border-bottom: 5px solid var(--coral); border-radius: 8px; }
+    #python_image_container { height: 52px; }
+    #python_image_container img { height: 100%; padding-left: 0; }
+    #title { color: white; font: 38px Georgia, serif; text-align: left; }
+    #metadata_table { align-self: flex-end; padding: 12px 20px; background: white; border: 1px solid var(--line); border-radius: 6px; }
+    .fair_metadata_table { margin: 0; color: var(--ink); font-size: 13px; }
+    .fair_metadata_table th { padding-right: 16px; color: #64746f; text-align: left; }
+    .separator { width: 100%; padding: 10px 18px; background: var(--forest); border-left: 5px solid var(--coral); border-radius: 4px; }
+    .separator p { margin: 0; color: white; font: 22px Georgia, serif; }
+    .flex_row { display: flex; gap: 18px; width: 100%; padding-bottom: 8px; overflow-x: auto; }
+    #main > div:not(#band):not(#metadata_table):not(.separator) { max-width: 100%; overflow-x: auto; }
+    table { border-collapse: collapse; background: white; color: var(--ink); font-size: 13px; }
+    .fair_table { border: 1px solid var(--line); border-radius: 6px; font-variant-numeric: tabular-nums; }
+    .fair_table td, .fair_table th, table.dataframe td, table.dataframe th { padding: 9px 12px; border-bottom: 1px solid var(--line); }
+    .fair_table thead th, table.dataframe thead th { background: var(--mint); color: var(--forest); }
+    .fair_table th { text-align: left; }
+    .fair_table tr:nth-child(even), table.dataframe tr:nth-child(even) { background: #f7f9f7; }
+    .fair_table td img, img { max-width: 100%; height: auto; }
+    h1 { color: var(--forest); font: 26px Georgia, serif; }
+    @media (max-width: 700px) {
+        #main { width: calc(100% - 24px); margin: 12px auto 32px; gap: 14px; }
+        #band { min-height: 105px; padding: 18px; }
+        #title { padding-left: 12px; font-size: 30px; }
+    }
+</style>
+"""
 
 # ---------------------------------------------------------
 # PARÂMETROS DA ANÁLISE
@@ -152,8 +367,10 @@ init_db()
 # ---------------------------------------------------------
 # INTERFACE STREAMLIT
 # ---------------------------------------------------------
-st.sidebar.header("Painel de Controle")
-if st.sidebar.button("▶ Executar Simulação Monte Carlo (PyFAIR)", type="primary"):
+st.sidebar.markdown("### Central de análise")
+st.sidebar.caption("Carteira de riscos · 4Ps")
+st.sidebar.markdown("---")
+if st.sidebar.button("Executar simulação", type="primary"):
     
     with st.spinner(f"Processando {N_SIMULACOES} cenários para cada risco..."):
         conn = sqlite3.connect(PASTA_DB)
@@ -241,12 +458,19 @@ if st.sidebar.button("▶ Executar Simulação Monte Carlo (PyFAIR)", type="prim
             resultado.to_html(str(destino), index=False, border=1)
             html_msg = f"⚠️ Relatório PyFAIR falhou, HTML alternativo gerado ({e})."
 
+        html = destino.read_text(encoding="utf-8")
+        if "</head>" in html:
+            html = html.replace("</head>", f"{CSS_RELATORIO}</head>", 1)
+        else:
+            html = f"<!doctype html><html><head><meta charset='utf-8'>{CSS_RELATORIO}</head><body>{html}</body></html>"
+        destino.write_text(html, encoding="utf-8")
+
     # ==========================================
     # APRESENTAÇÃO DOS DADOS NA TELA
     # ==========================================
     st.success("Análise OpenFAIR concluída e salva no banco de dados SQLite!")
     
-    st.header("📊 Resumo do Portfólio de Riscos (Total Residual)")
+    st.header("Resumo de exposição")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Perda Inerente (Ano)", f"R$ {soma_inerente:,.0f}".replace(',','.'))
     col2.metric("Perda Residual (Ano)", f"R$ {total.mean():,.0f}".replace(',','.'))
@@ -255,7 +479,7 @@ if st.sidebar.button("▶ Executar Simulação Monte Carlo (PyFAIR)", type="prim
 
     st.divider()
 
-    st.header("📋 Ranking de Riscos (Classificação FAIR)")
+    st.header("Riscos priorizados")
     
     # Formatação visual da tabela no Streamlit
     st.dataframe(
@@ -279,4 +503,15 @@ if st.sidebar.button("▶ Executar Simulação Monte Carlo (PyFAIR)", type="prim
             mime="text/html"
         )
 else:
-    st.info("👈 Clique no botão no menu lateral para executar a simulação FAIR baseada nos dados do SQLite.")
+    st.markdown(
+        """
+        <div class="empty-state">
+            <span class="empty-state-mark">01</span>
+            <div>
+                <strong>Carteira pronta para análise</strong>
+                <p>Modelo FAIR configurado para 10.000 simulações por risco.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

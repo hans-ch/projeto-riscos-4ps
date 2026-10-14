@@ -1,5 +1,4 @@
 <html>
-
     <head>
         <style>
              
@@ -119,7 +118,38 @@
 
   
         </style>
-    </head>
+    
+<style>
+    :root { --forest: #174f45; --ink: #173c35; --mint: #e8f1ed; --line: #dce5df; --coral: #e77b5b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f2f5f2; color: var(--ink); font: 15px/1.55 "Segoe UI", sans-serif; }
+    #main { display: flex; flex-direction: column; gap: 18px; width: min(100% - 40px, 1440px); margin: 24px auto 48px; }
+    #band { display: flex; align-items: center; min-height: 130px; padding: 24px 32px; background: #103a34; border-bottom: 5px solid var(--coral); border-radius: 8px; }
+    #python_image_container { height: 52px; }
+    #python_image_container img { height: 100%; padding-left: 0; }
+    #title { color: white; font: 38px Georgia, serif; text-align: left; }
+    #metadata_table { align-self: flex-end; padding: 12px 20px; background: white; border: 1px solid var(--line); border-radius: 6px; }
+    .fair_metadata_table { margin: 0; color: var(--ink); font-size: 13px; }
+    .fair_metadata_table th { padding-right: 16px; color: #64746f; text-align: left; }
+    .separator { width: 100%; padding: 10px 18px; background: var(--forest); border-left: 5px solid var(--coral); border-radius: 4px; }
+    .separator p { margin: 0; color: white; font: 22px Georgia, serif; }
+    .flex_row { display: flex; gap: 18px; width: 100%; padding-bottom: 8px; overflow-x: auto; }
+    #main > div:not(#band):not(#metadata_table):not(.separator) { max-width: 100%; overflow-x: auto; }
+    table { border-collapse: collapse; background: white; color: var(--ink); font-size: 13px; }
+    .fair_table { border: 1px solid var(--line); border-radius: 6px; font-variant-numeric: tabular-nums; }
+    .fair_table td, .fair_table th, table.dataframe td, table.dataframe th { padding: 9px 12px; border-bottom: 1px solid var(--line); }
+    .fair_table thead th, table.dataframe thead th { background: var(--mint); color: var(--forest); }
+    .fair_table th { text-align: left; }
+    .fair_table tr:nth-child(even), table.dataframe tr:nth-child(even) { background: #f7f9f7; }
+    .fair_table td img, img { max-width: 100%; height: auto; }
+    h1 { color: var(--forest); font: 26px Georgia, serif; }
+    @media (max-width: 700px) {
+        #main { width: calc(100% - 24px); margin: 12px auto 32px; gap: 14px; }
+        #band { min-height: 105px; padding: 18px; }
+        #title { padding-left: 12px; font-size: 30px; }
+    }
+</style>
+</head>
 
     <body>
         <div id="main">
@@ -142,11 +172,11 @@
   <tbody>
     <tr>
       <th>Author</th>
-      <td>hanse</td>
+      <td>noire</td>
     </tr>
     <tr>
       <th>Created</th>
-      <td>2026-10-14 17:24:18</td>
+      <td>2026-10-14 20:03:58</td>
     </tr>
     <tr>
       <th>PyFair Version</th>
@@ -239,14 +269,14 @@
     </tr>
     <tr>
       <th>Identifier</th>
-      <td>3ba67bb9-c80d-11f1-aafd-cc6b1e50dd26</td>
-      <td>3ba8fd4f-c80d-11f1-b41c-cc6b1e50dd26</td>
-      <td>3bab4981-c80d-11f1-9be1-cc6b1e50dd26</td>
-      <td>3bad6074-c80d-11f1-942f-cc6b1e50dd26</td>
-      <td>3bafdc89-c80d-11f1-ba36-cc6b1e50dd26</td>
-      <td>3bb2cbf3-c80d-11f1-8c5d-cc6b1e50dd26</td>
-      <td>3bb60373-c80d-11f1-a867-cc6b1e50dd26</td>
-      <td>3bb8ce1e-c80d-11f1-9e78-cc6b1e50dd26</td>
+      <td>8970b241-c823-11f1-b7c5-889166c9c479</td>
+      <td>89721d62-c823-11f1-81a3-889166c9c479</td>
+      <td>89737698-c823-11f1-a5bb-889166c9c479</td>
+      <td>8974bf4d-c823-11f1-9b5f-889166c9c479</td>
+      <td>897609fb-c823-11f1-ac73-889166c9c479</td>
+      <td>89774728-c823-11f1-917c-889166c9c479</td>
+      <td>89788104-c823-11f1-a37c-889166c9c479</td>
+      <td>8979beb6-c823-11f1-99e7-889166c9c479</td>
     </tr>
     <tr>
       <th>Model Type</th>
@@ -610,13 +640,10 @@
   </tbody>
 </table><br>
             </div>
-
             <!--Code rows-->
             <div class='separator'>
                 <p>Code</p>
             </div>
-
         </div>
     </body>
-
 </html>
