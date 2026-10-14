@@ -670,7 +670,7 @@ wheels = [
 [[package]]
 name = "projeto-riscos-4ps"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "pyfair" },
     { name = "streamlit" },
