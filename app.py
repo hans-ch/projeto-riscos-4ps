@@ -665,13 +665,6 @@ if st.sidebar.button("Executar simulação", type="primary"):
         hide_index=True
     )
 
-    st.header("Log de ocorrências no banco")
-    st.dataframe(
-        log_ocorrencias,
-        use_container_width=True,
-        hide_index=True
-    )
-
     st.info(html_msg)
 
     excel_buffer = io.BytesIO()
