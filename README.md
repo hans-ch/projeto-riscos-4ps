@@ -100,11 +100,11 @@ uv run streamlit run app.py
 Se quiser a solução mais direta, basta rodar:
 
 ```bash
-1. python -m pip install streamlit
-2. python -m venv .venv
-3. .\.venv\Scripts\activate
-4. uv sync
-5. python -m streamlit run app.py
+python -m pip install streamlit
+python -m venv .venv
+.\.venv\Scripts\activate
+uv sync
+python -m streamlit run app.py
 ```
 
 ---
