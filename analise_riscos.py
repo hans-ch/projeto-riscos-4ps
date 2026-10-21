@@ -99,6 +99,10 @@ cursor.executescript("""
         classificacao_fair TEXT,
         FOREIGN KEY (risco_id) REFERENCES riscos(id)
     );
+    
+    CREATE TABLE IF NOT EXISTS log_ocorrencias(
+        
+    );
 """)
 conn.commit()
 

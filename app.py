@@ -429,6 +429,41 @@ def init_db():
 init_db()
 
 # ---------------------------------------------------------
+# FUNÇÕES AUXILIARES DA ANÁLISE
+# ---------------------------------------------------------
+def reducao_de_frequencia(controles_df, risco_id):
+    status = controles_df.loc[controles_df["risco_id"] == risco_id, "status_acao"]
+    total = sum(REDUCAO_POR_STATUS.get(s, 0.0) for s in status)
+    return min(total, REDUCAO_MAXIMA)
+
+
+def construir_modelo(nome, probabilidade, severidade, fator_frequencia=1.0):
+    f = FREQUENCIA[int(probabilidade)]
+    p = PERDA[int(severidade)]
+    m = FairModel(name=nome, n_simulations=N_SIMULACOES, random_seed=42)
+    m.input_data("Loss Event Frequency", low=f[0] * fator_frequencia, mode=f[1] * fator_frequencia, high=f[2] * fator_frequencia)
+    m.input_data("Loss Magnitude", low=p[0], mode=p[1], high=p[2])
+    m.calculate_all()
+    return m
+
+
+def classificar_fair(perda_media):
+    if perda_media >= LIMITE_ALTO:
+        return "Alto"
+    if perda_media >= LIMITE_MEDIO:
+        return "Médio"
+    return "Baixo"
+
+
+def classificar_matriz(nivel):
+    if nivel >= 15:
+        return "Alto"
+    if nivel >= 8:
+        return "Médio"
+    return "Baixo"
+
+
+# ---------------------------------------------------------
 # INTERFACE STREAMLIT
 # ---------------------------------------------------------
 st.sidebar.markdown("### Central de análise")
@@ -440,36 +475,32 @@ if st.sidebar.button("Executar simulação", type="primary"):
         conn = sqlite3.connect(PASTA_DB)
         riscos = pd.read_sql("SELECT id, titulo, categoria, severidade, probabilidade FROM riscos", conn)
         controles = pd.read_sql("SELECT risco_id, status_acao FROM medidas_controle", conn)
+        pessoas = pd.read_sql("SELECT id, nome FROM pessoas", conn)
+        analises = pd.read_sql("SELECT risco_id, pessoa_id, data_analise, status FROM analises_risco", conn)
+        medidas = pd.read_sql("SELECT risco_id, acao, status_acao FROM medidas_controle", conn)
 
-        def reducao_de_frequencia(risco_id):
-            status = controles.loc[controles["risco_id"] == risco_id, "status_acao"]
-            total = sum(REDUCAO_POR_STATUS.get(s, 0.0) for s in status)
-            return min(total, REDUCAO_MAXIMA)
+        if not analises.empty:
+            analises = analises.sort_values("data_analise").drop_duplicates(subset="risco_id", keep="first")
+        if not medidas.empty:
+            medidas = medidas.fillna({"acao": "Sem ação registrada", "status_acao": "Pendente"})
+            medidas_agg = medidas.groupby("risco_id", as_index=False).agg(
+                acao=("acao", lambda s: "; ".join(str(x) for x in s if str(x).strip())),
+                status_acao=("status_acao", lambda s: "Concluída" if all(str(x).strip() == "Concluída" for x in s) else "Pendente")
+            )
+        else:
+            medidas_agg = pd.DataFrame(columns=["risco_id", "acao", "status_acao"])
 
-        def construir_modelo(nome, probabilidade, severidade, fator_frequencia=1.0):
-            f = FREQUENCIA[int(probabilidade)]
-            p = PERDA[int(severidade)]
-            m = FairModel(name=nome, n_simulations=N_SIMULACOES, random_seed=42)
-            m.input_data("Loss Event Frequency", low=f[0]*fator_frequencia, mode=f[1]*fator_frequencia, high=f[2]*fator_frequencia)
-            m.input_data("Loss Magnitude", low=p[0], mode=p[1], high=p[2])
-            m.calculate_all()
-            return m
-
-        def classificar_fair(perda_media):
-            if perda_media >= LIMITE_ALTO: return "Alto"
-            if perda_media >= LIMITE_MEDIO: return "Médio"
-            return "Baixo"
-
-        def classificar_matriz(nivel):
-            if nivel >= 15: return "Alto"
-            if nivel >= 8: return "Médio"
-            return "Baixo"
+        if not analises.empty:
+            analises = analises.merge(pessoas[["id", "nome"]], left_on="pessoa_id", right_on="id", how="left")
+            analises = analises[["risco_id", "nome", "data_analise", "status"]].rename(columns={"nome": "Pessoa afetada", "data_analise": "Data da ocorrência", "status": "Status da análise"})
+        else:
+            analises = pd.DataFrame(columns=["risco_id", "Pessoa afetada", "Data da ocorrência", "Status da análise"])
 
         linhas = []
         modelos_residuais = []
 
         for _, r in riscos.iterrows():
-            reducao = reducao_de_frequencia(r["id"])
+            reducao = reducao_de_frequencia(controles, r["id"])
             inerente = construir_modelo(f"{r['id']} Inerente", r["probabilidade"], r["severidade"])
             residual = construir_modelo(f"{r['id']} Residual", r["probabilidade"], r["severidade"], fator_frequencia=1 - reducao)
             modelos_residuais.append(residual)
@@ -478,10 +509,19 @@ if st.sidebar.button("Executar simulação", type="primary"):
             risco_re = residual.export_results()["Risk"]
             nivel_matriz = int(r["severidade"]) * int(r["probabilidade"])
 
+            pessoa = analises.loc[analises["risco_id"] == r["id"], "Pessoa afetada"]
+            ocorrencia = analises.loc[analises["risco_id"] == r["id"], "Data da ocorrência"]
+            status_acao = medidas_agg.loc[medidas_agg["risco_id"] == r["id"], "status_acao"]
+            solucao = medidas_agg.loc[medidas_agg["risco_id"] == r["id"], "acao"]
+
             linhas.append({
                 "id": int(r["id"]),
                 "Risco": r["titulo"],
                 "Categoria": r["categoria"],
+                "Pessoa afetada": pessoa.iloc[0] if not pessoa.empty else "Não informado",
+                "Data da ocorrência": ocorrencia.iloc[0] if not ocorrencia.empty else "Não informada",
+                "Como foi resolvido": solucao.iloc[0] if not solucao.empty else "Sem ação registrada",
+                "Status": status_acao.iloc[0] if not status_acao.empty else "Pendente",
                 "Matriz (SxP)": f"{nivel_matriz} - {classificar_matriz(nivel_matriz)}",
                 "Redução controles": f"{reducao:.0%}",
                 "Perda inerente (R$/ano)": round(risco_in.mean()),
