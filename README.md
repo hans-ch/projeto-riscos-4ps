@@ -1,125 +1,73 @@
 # Projeto de Análise de Riscos 4P's
 
-Este projeto consiste em uma aplicação em Python para análise de riscos com uso do framework Streamlit e da biblioteca PyFAIR. A interface permite simular cenários de risco, avaliar impactos e visualizar relatórios de análise.
+Aplicação de análise quantitativa de riscos com simulações OpenFAIR/PyFAIR. A interface foi migrada do Streamlit para Vue 3; a análise continua em Python, servida por uma API FastAPI e usando a base SQLite existente.
 
 ## Requisitos
 
-Antes de iniciar, verifique se você possui:
+- Python 3.13 ou superior
+- Node.js 20 ou superior e npm
+- `uv` (recomendado) ou `pip`
 
-- Python 3.14 ou superior
-- pip instalado
-- Git (opcional, caso queira clonar o projeto)
-- acesso ao terminal do sistema
+## Executar em desenvolvimento
 
-Para confirmar a versão do Python:
+Na raiz do projeto, instale as dependências Python:
 
-```bash
-python --version
-```
-
-Se a versão não aparecer ou estiver incompatível, instale o Python antes de continuar.
-
-## Como rodar o projeto
-
-A forma mais comum é usar um ambiente virtual para isolar as dependências do projeto.
-
-### Opção 1: usando pip
-
-1. Abra o terminal e entre na pasta do projeto:
-
-```bash
-cd C:\caminho\para\projeto-riscos-4ps
-```
-
-2. Crie o ambiente virtual:
-
-```bash
-python -m venv .venv
-```
-
-3. Ative o ambiente virtual:
-
-No Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-4. Atualize o pip:
-
-```bash
-python -m pip install --upgrade pip
-```
-
-5. Instale as dependências do projeto:
-
-```bash
-pip install -r requirements.txt
-```
-
-6. Inicie a aplicação:
-
-```bash
-streamlit run app.py
-```
-
-7. Acesse a aplicação no navegador:
-
-```text
-http://localhost:8501
-```
-
----
-
-### Opção 2: usando uv
-
-Se você preferir usar o `uv`, siga os passos abaixo:
-
-1. Entre na pasta do projeto:
-
-```bash
-cd C:\caminho\para\projeto-riscos-4ps
-```
-
-2. Sincronize o ambiente do projeto:
-
-```bash
+```powershell
 uv sync
 ```
 
-3. Execute a aplicação:
+Inicie a API em um terminal:
 
-```bash
-uv run streamlit run app.py
+```powershell
+uv run python app.py
 ```
 
----
+A API e a documentação interativa ficam disponíveis em:
 
-## Resumo rápido
+- API: <http://127.0.0.1:8000>
+- Documentação: <http://127.0.0.1:8000/docs>
 
-Se quiser a solução mais direta, basta rodar:
+Em outro terminal, instale e inicie o front Vue:
 
-```bash
-python -m pip install streamlit
-python -m venv .venv
-.\.venv\Scripts\activate
-uv sync
-python -m streamlit run app.py
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
----
+Abra o endereço informado pelo Vite, normalmente <http://localhost:5173>.
 
-## Dicas importantes
+## Banco de dados
 
-- Sempre execute os comandos dentro da pasta do projeto.
-- Verifique se o ambiente virtual está ativado antes de instalar as dependências.
-- Se a aplicação não abrir, confirme que o Streamlit foi instalado corretamente.
-- Caso o VS Code esteja usando outro interpretador, selecione o Python da pasta `.venv`.
-- Se o projeto estiver usando um ambiente diferente, certifique-se de que a versão do Python seja compatível com o projeto.
+Por padrão, a API continua usando `DataBase.db` na raiz do projeto. Para apontar para outra base, defina `RISK_DB_PATH` antes de iniciar o servidor:
 
-## Estrutura principal do projeto
+```powershell
+$env:RISK_DB_PATH = "C:\caminho\para\DataBase.db"
+uv run python app.py
+```
 
-- `app.py`: aplicação principal do Streamlit
-- `requirements.txt`: dependências do projeto
-- `pyproject.toml`: configuração do projeto
-- `README.md`: instruções de uso
+O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando a tabela de riscos está vazia. Ele preserva os riscos e controles já cadastrados.
+
+## Funcionalidades
+
+- Execução de 10.000 simulações PyFAIR por risco
+- Comparação entre perdas inerentes e residuais e cálculo do P95 total
+- Aplicação de redução de frequência conforme o status dos controles
+- Registro dos resultados em `resultados_fair` no SQLite
+- Exportação persistente do relatório HTML e da planilha Excel em `reports/`
+
+## Estrutura principal
+
+- `frontend/`: interface Vue 3 e configuração do Vite
+- `api.py`: API FastAPI e endpoints de análise e relatórios
+- `analysis_service.py`: banco SQLite, modelos PyFAIR e geração dos relatórios
+- `app.py`: inicializador local da API
+- `analise_riscos.py`: execução analítica existente em modo script
+- `DataBase.db`: base de dados local
+
+## Endpoints
+
+- `GET /api/health`: verifica se a API está disponível
+- `POST /api/analysis`: executa a análise e atualiza os resultados no SQLite
+- `GET /api/reports/html`: baixa o relatório HTML da análise mais recente
+- `GET /api/reports/excel`: baixa a planilha Excel da análise mais recente

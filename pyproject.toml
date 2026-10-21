@@ -8,9 +8,10 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi>=0.115.0",
     "pyfair>=0.1a13",
-    "streamlit>=1.64.0",
     "openpyxl>=3.1.5",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [tool.uv]
