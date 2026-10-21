@@ -123,5 +123,3 @@ streamlit run app.py
 - `requirements.txt`: dependências do projeto
 - `pyproject.toml`: configuração do projeto
 - `README.md`: instruções de uso
-
-Se precisar, também posso criar uma versão ainda mais enxuta para o README, com instruções apenas para Windows ou apenas para usuários iniciantes.
