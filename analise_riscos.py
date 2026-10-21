@@ -100,11 +100,44 @@ cursor.executescript("""
         FOREIGN KEY (risco_id) REFERENCES riscos(id)
     );
     
-    CREATE TABLE IF NOT EXISTS log_ocorrencias(
-        
+    CREATE TABLE IF NOT EXISTS log_ocorrencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        risco_id INTEGER,
+        pessoa_id INTEGER,
+        nome_pessoa TEXT,
+        data_ocorrencia TEXT,
+        descricao_ocorrencia TEXT,
+        status TEXT,
+        acao TEXT,
+        status_acao TEXT,
+        FOREIGN KEY (risco_id) REFERENCES riscos(id),
+        FOREIGN KEY (pessoa_id) REFERENCES pessoas(id)
     );
 """)
 conn.commit()
+
+# popular log_ocorrencias se estiver vazio
+if cursor.execute("SELECT COUNT(*) FROM log_ocorrencias").fetchone()[0] == 0:
+    hoje = date.today().isoformat()
+    cursor.executemany(
+        """
+        INSERT INTO log_ocorrencias (
+            risco_id, pessoa_id, nome_pessoa, data_ocorrencia,
+            descricao_ocorrencia, status, acao, status_acao
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "Ana Souza", hoje, "Queda em serviço em altura", "Concluída", "Instalar linha de vida", "Concluída"),
+            (2, 1, "Ana Souza", hoje, "Falta de ventilação em espaço confinado", "Concluída", "Exaustor e detector de gases", "Em andamento"),
+            (3, 2, "Carlos Lima", hoje, "Contato com painel energizado", "Concluída", "Bloqueio e etiquetagem (LOTO)", "Concluída"),
+            (4, 3, "Marina Alves", hoje, "Acidente com empilhadeira na produção", "Concluída", "Sinalização e faixa de pedestres", "Concluída"),
+            (5, 3, "Marina Alves", hoje, "Exposição a solventes sem ventilação", "Concluída", "Exaustão localizada", "Pendente"),
+            (6, 3, "Marina Alves", hoje, "Ruído excessivo em prensa", "Concluída", "Fornecer protetor auricular", "Concluída"),
+            (7, 3, "Marina Alves", hoje, "Lesão por movimento repetitivo", "Concluída", "Ajustes ergonômicos", "Pendente"),
+            (8, 4, "João Pereira", hoje, "Risco de incêndio em depósito", "Concluída", "Sistema de sprinklers", "Em andamento"),
+        ],
+    )
+    conn.commit()
 
 # ---------------------------------------------------------
 # 2) DADOS FICTÍCIOS (só se a tabela riscos estiver vazia)

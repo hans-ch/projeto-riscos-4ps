@@ -381,6 +381,20 @@ def init_db():
             classificacao_fair TEXT,
             FOREIGN KEY (risco_id) REFERENCES riscos(id)
         );
+
+        CREATE TABLE IF NOT EXISTS log_ocorrencias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            risco_id INTEGER,
+            pessoa_id INTEGER,
+            nome_pessoa TEXT,
+            data_ocorrencia TEXT,
+            descricao_ocorrencia TEXT,
+            status TEXT,
+            acao TEXT,
+            status_acao TEXT,
+            FOREIGN KEY (risco_id) REFERENCES riscos(id),
+            FOREIGN KEY (pessoa_id) REFERENCES pessoas(id)
+        );
     """)
     conn.commit()
     
@@ -423,6 +437,21 @@ def init_db():
             (6, "Fornecer protetor auricular",   3, "2026-09-30", "Concluída"),
             (8, "Sistema de sprinklers",         4, "2027-03-01", "Em andamento"),
         ])
+
+        registros_log = [
+            (1, 1, "Ana Souza", hoje, "Queda em serviço em altura", "Concluída", "Instalar linha de vida", "Concluída"),
+            (2, 1, "Ana Souza", hoje, "Falta de ventilação no espaço confinado", "Concluída", "Exaustor e detector de gases", "Em andamento"),
+            (3, 2, "Carlos Lima", hoje, "Contato com painel energizado", "Concluída", "Bloqueio e etiquetagem (LOTO)", "Concluída"),
+            (4, 3, "Marina Alves", hoje, "Acidente com empilhadeira na área de produção", "Concluída", "Sinalização e faixa de pedestres", "Concluída"),
+            (5, 3, "Marina Alves", hoje, "Exposição a solventes sem ventilação", "Concluída", "Exaustão localizada", "Pendente"),
+            (6, 3, "Marina Alves", hoje, "Ruído excessivo em linha de prensa", "Concluída", "Fornecer protetor auricular", "Concluída"),
+            (7, 3, "Marina Alves", hoje, "Lesão por movimento repetitivo", "Concluída", "Ajustes ergonômicos", "Pendente"),
+            (8, 4, "João Pereira", hoje, "Risco de incêndio em depósito", "Concluída", "Sistema de sprinklers", "Em andamento"),
+        ]
+        cursor.executemany(
+            "INSERT INTO log_ocorrencias (risco_id, pessoa_id, nome_pessoa, data_ocorrencia, descricao_ocorrencia, status, acao, status_acao) VALUES (?,?,?,?,?,?,?,?)",
+            registros_log,
+        )
         conn.commit()
     conn.close()
 
@@ -478,9 +507,33 @@ if st.sidebar.button("Executar simulação", type="primary"):
         pessoas = pd.read_sql("SELECT id, nome FROM pessoas", conn)
         analises = pd.read_sql("SELECT risco_id, pessoa_id, data_analise, status FROM analises_risco", conn)
         medidas = pd.read_sql("SELECT risco_id, acao, status_acao FROM medidas_controle", conn)
+        log_ocorrencias = pd.read_sql("SELECT * FROM log_ocorrencias", conn)
+
+        if log_ocorrencias.empty:
+            cursor = conn.cursor()
+            existentes = cursor.execute("SELECT COUNT(*) FROM log_ocorrencias").fetchone()[0]
+            if existentes == 0:
+                hoje = date.today().isoformat()
+                cursor.executemany(
+                    "INSERT INTO log_ocorrencias (risco_id, pessoa_id, nome_pessoa, data_ocorrencia, descricao_ocorrencia, status, acao, status_acao) VALUES (?,?,?,?,?,?,?,?)",
+                    [
+                        (1, 1, "Ana Souza", hoje, "Queda em serviço em altura", "Concluída", "Instalar linha de vida", "Concluída"),
+                        (2, 1, "Ana Souza", hoje, "Falta de ventilação no espaço confinado", "Concluída", "Exaustor e detector de gases", "Em andamento"),
+                        (3, 2, "Carlos Lima", hoje, "Contato com painel energizado", "Concluída", "Bloqueio e etiquetagem (LOTO)", "Concluída"),
+                        (4, 3, "Marina Alves", hoje, "Acidente com empilhadeira na área de produção", "Concluída", "Sinalização e faixa de pedestres", "Concluída"),
+                        (5, 3, "Marina Alves", hoje, "Exposição a solventes sem ventilação", "Concluída", "Exaustão localizada", "Pendente"),
+                        (6, 3, "Marina Alves", hoje, "Ruído excessivo em linha de prensa", "Concluída", "Fornecer protetor auricular", "Concluída"),
+                        (7, 3, "Marina Alves", hoje, "Lesão por movimento repetitivo", "Concluída", "Ajustes ergonômicos", "Pendente"),
+                        (8, 4, "João Pereira", hoje, "Risco de incêndio em depósito", "Concluída", "Sistema de sprinklers", "Em andamento"),
+                    ],
+                )
+                conn.commit()
+                log_ocorrencias = pd.read_sql("SELECT * FROM log_ocorrencias", conn)
 
         if not analises.empty:
             analises = analises.sort_values("data_analise").drop_duplicates(subset="risco_id", keep="first")
+        if not log_ocorrencias.empty:
+            log_ocorrencias = log_ocorrencias.sort_values("data_ocorrencia").drop_duplicates(subset="risco_id", keep="first")
         if not medidas.empty:
             medidas = medidas.fillna({"acao": "Sem ação registrada", "status_acao": "Pendente"})
             medidas_agg = medidas.groupby("risco_id", as_index=False).agg(
@@ -489,6 +542,20 @@ if st.sidebar.button("Executar simulação", type="primary"):
             )
         else:
             medidas_agg = pd.DataFrame(columns=["risco_id", "acao", "status_acao"])
+
+        if not log_ocorrencias.empty:
+            log_ocorrencias = log_ocorrencias.merge(pessoas[["id", "nome"]], left_on="pessoa_id", right_on="id", how="left")
+            log_ocorrencias = log_ocorrencias[["risco_id", "nome", "data_ocorrencia", "descricao_ocorrencia", "status_acao", "acao"]].rename(
+                columns={
+                    "nome": "Pessoa afetada",
+                    "data_ocorrencia": "Data da ocorrência",
+                    "descricao_ocorrencia": "Descrição da ocorrência",
+                    "status_acao": "Status",
+                    "acao": "Como foi resolvido",
+                }
+            )
+        else:
+            log_ocorrencias = pd.DataFrame(columns=["risco_id", "Pessoa afetada", "Data da ocorrência", "Descrição da ocorrência", "Status", "Como foi resolvido"])
 
         if not analises.empty:
             analises = analises.merge(pessoas[["id", "nome"]], left_on="pessoa_id", right_on="id", how="left")
@@ -509,10 +576,11 @@ if st.sidebar.button("Executar simulação", type="primary"):
             risco_re = residual.export_results()["Risk"]
             nivel_matriz = int(r["severidade"]) * int(r["probabilidade"])
 
-            pessoa = analises.loc[analises["risco_id"] == r["id"], "Pessoa afetada"]
-            ocorrencia = analises.loc[analises["risco_id"] == r["id"], "Data da ocorrência"]
-            status_acao = medidas_agg.loc[medidas_agg["risco_id"] == r["id"], "status_acao"]
-            solucao = medidas_agg.loc[medidas_agg["risco_id"] == r["id"], "acao"]
+            pessoa = log_ocorrencias.loc[log_ocorrencias["risco_id"] == r["id"], "Pessoa afetada"]
+            ocorrencia = log_ocorrencias.loc[log_ocorrencias["risco_id"] == r["id"], "Data da ocorrência"]
+            status_acao = log_ocorrencias.loc[log_ocorrencias["risco_id"] == r["id"], "Status"]
+            solucao = log_ocorrencias.loc[log_ocorrencias["risco_id"] == r["id"], "Como foi resolvido"]
+            descricao = log_ocorrencias.loc[log_ocorrencias["risco_id"] == r["id"], "Descrição da ocorrência"]
 
             linhas.append({
                 "id": int(r["id"]),
@@ -520,6 +588,7 @@ if st.sidebar.button("Executar simulação", type="primary"):
                 "Categoria": r["categoria"],
                 "Pessoa afetada": pessoa.iloc[0] if not pessoa.empty else "Não informado",
                 "Data da ocorrência": ocorrencia.iloc[0] if not ocorrencia.empty else "Não informada",
+                "Descrição da ocorrência": descricao.iloc[0] if not descricao.empty else "Não informada",
                 "Como foi resolvido": solucao.iloc[0] if not solucao.empty else "Sem ação registrada",
                 "Status": status_acao.iloc[0] if not status_acao.empty else "Pendente",
                 "Matriz (SxP)": f"{nivel_matriz} - {classificar_matriz(nivel_matriz)}",
@@ -592,6 +661,13 @@ if st.sidebar.button("Executar simulação", type="primary"):
             "Perda residual (R$/ano)": "R$ {:,.0f}",
             "P95 residual (R$)": "R$ {:,.0f}"
         }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.header("Log de ocorrências no banco")
+    st.dataframe(
+        log_ocorrencias,
         use_container_width=True,
         hide_index=True
     )
