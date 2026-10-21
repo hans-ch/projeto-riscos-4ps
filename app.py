@@ -69,6 +69,69 @@ st.markdown(
             color: white;
         }
 
+        .stButton > button,
+        .stDownloadButton > button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 44px;
+            padding: 0.7rem 1.15rem;
+            border: 1px solid rgba(23, 75, 64, 0.12);
+            border-radius: 10px;
+            background: linear-gradient(180deg, #ffffff 0%, #edf5f2 100%);
+            color: var(--pine-deep);
+            font-weight: 700;
+            line-height: 1.2;
+            box-shadow: 0 2px 8px rgba(16, 55, 47, 0.08);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            border-color: rgba(23, 75, 64, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(16, 55, 47, 0.12);
+        }
+
+        .stButton > button:active,
+        .stDownloadButton > button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(16, 55, 47, 0.1);
+        }
+
+        .stButton > button:focus,
+        .stDownloadButton > button:focus {
+            box-shadow: 0 0 0 3px rgba(228, 119, 86, 0.24);
+            outline: none;
+        }
+
+        [data-testid="stSidebar"] .stButton > button {
+            display: flex;
+            width: 100%;
+            min-height: 48px;
+            border: 0;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #e47756 0%, #d56446 100%);
+            color: white;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            box-shadow: 0 8px 18px rgba(228, 119, 86, 0.26);
+        }
+
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: linear-gradient(135deg, #d96a4d 0%, #c95d3d 100%);
+            color: white;
+        }
+
+        .stDownloadButton > button {
+            background: linear-gradient(180deg, #f7faf8 0%, #edf5f2 100%);
+            border: 1px solid rgba(23, 75, 64, 0.15);
+        }
+
+        .stDownloadButton > button:hover {
+            background: linear-gradient(180deg, #ffffff 0%, #edf5f2 100%);
+        }
+
         .app-masthead {
             position: relative;
             overflow: hidden;
