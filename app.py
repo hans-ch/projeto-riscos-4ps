@@ -4,6 +4,7 @@ import sqlite3
 from datetime import date
 import numpy as np
 import pandas as pd
+import io
 
 # Compatibilidade: PyFAIR usa applymap, removido no pandas 3.0
 if not hasattr(pd.DataFrame, "applymap"):
@@ -493,14 +494,27 @@ if st.sidebar.button("Executar simulação", type="primary"):
     )
 
     st.info(html_msg)
-    
-    # Botão para baixar o relatório HTML gerado
-    with open(destino, "rb") as file:
+
+    excel_buffer = io.BytesIO()
+    resultado.to_excel(excel_buffer, index=False, sheet_name="Riscos FAIR")
+    excel_buffer.seek(0)
+
+    col_html, col_excel = st.columns(2)
+    with col_html:
+        with open(destino, "rb") as file:
+            st.download_button(
+                label="📄 Baixar Relatório HTML Completo",
+                data=file,
+                file_name="relatorio_fair.html",
+                mime="text/html"
+            )
+
+    with col_excel:
         st.download_button(
-            label="📄 Baixar Relatório HTML Completo",
-            data=file,
-            file_name="relatorio_fair.html",
-            mime="text/html"
+            label="📊 Baixar Excel",
+            data=excel_buffer.getvalue(),
+            file_name="relatorio_fair.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 else:
     st.markdown(
