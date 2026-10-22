@@ -50,9 +50,15 @@ O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando 
 
 ## Funcionalidades
 
-- Cadastro de riscos com categoria, descrição, severidade e probabilidade
+- Cadastro de riscos com avaliações próprias de severidade e probabilidade nas dimensões Pessoas, Processos, Produtos e Políticas governamentais
 - Validação dos dados e persistência imediata no SQLite
-- Execução de 10.000 simulações PyFAIR por risco
+- Execução de 10.000 simulações PyFAIR por risco e por dimensão
+- Comparação de exposição, matriz de risco e classificação FAIR separadas por dimensão
+- Parecer final por risco: favorável somente quando as quatro exposições residuais médias ficam abaixo de R$ 50 mil/ano; qualquer dimensão média ou alta é não favorável até mitigação
+- Justificativa do parecer com dimensões críticas, notas de severidade/probabilidade e exposição residual, além de gráfico de contribuição por risco
+- Migração das pontuações antigas para as quatro dimensões como valores herdados que exigem revisão explícita
+- Cadastro sem notas pré-preenchidas; severidade e probabilidade precisam ser escolhidas para cada dimensão
+- Total de planejamento calculado pela soma FAIR das quatro exposições, sujeito a possíveis sobreposições
 - Comparação entre perdas inerentes e residuais e cálculo do P95 total
 - Histórico persistente das 20 execuções mais recentes para comparar tendências
 - Benchmark configurável com metas próprias de perda residual, P95 e redução dos controles
@@ -75,6 +81,7 @@ O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando 
 - `GET /api/health`: verifica se a API está disponível
 - `GET /api/risks`: lista os riscos cadastrados
 - `POST /api/risks`: cadastra um risco para análises futuras
+- `PUT /api/risks/{id}/dimensions`: atualiza as quatro avaliações de um risco
 - `GET /api/analysis/history`: lista as 20 execuções mais recentes
 - `GET /api/benchmark`: consulta a referência configurada
 - `PUT /api/benchmark`: salva nome e métricas de referência próprios

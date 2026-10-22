@@ -1,22 +1,41 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
   risks: { type: Array, default: () => [] },
 });
 
 const levels = [5, 4, 3, 2, 1];
+const dimensionNames = [
+  "Pessoas",
+  "Processos",
+  "Produtos",
+  "Políticas governamentais",
+];
+const selectedDimension = ref(dimensionNames[0]);
+const selectedAssessments = computed(() =>
+  props.risks.flatMap((risk) => {
+    const assessments = risk.dimensoes ?? risk.dimensions ?? [];
+    return assessments
+      .filter((assessment) => assessment.dimension === selectedDimension.value)
+      .map((assessment) => ({
+        title: risk.risco ?? risk.title,
+        severity: assessment.severity,
+        probability: assessment.probability,
+      }));
+  }),
+);
 const matrixCells = computed(() => levels.flatMap((severity) =>
   [1, 2, 3, 4, 5].map((probability) => {
-    const matched = props.risks.filter((risk) =>
-      Number(risk.severidade) === severity && Number(risk.probabilidade) === probability);
+    const matched = selectedAssessments.value.filter((risk) =>
+      Number(risk.severity) === severity && Number(risk.probability) === probability);
     const score = severity * probability;
     return {
       severity,
       probability,
       score,
       count: matched.length,
-      titles: matched.map((risk) => risk.risco),
+      titles: matched.map((risk) => risk.title),
       level: score >= 15 ? "high" : score >= 8 ? "medium" : "low",
     };
   }),
@@ -27,6 +46,9 @@ const matrixCells = computed(() => levels.flatMap((severity) =>
   <article class="panel matrix-panel">
     <div class="panel-heading chart-heading">
       <div><p class="eyebrow">MATRIZ DE RISCO 5 × 5</p><h2>Onde está a concentração?</h2></div>
+      <select v-model="selectedDimension" aria-label="Dimensão da matriz">
+        <option v-for="dimension in dimensionNames" :key="dimension" :value="dimension">{{ dimension }}</option>
+      </select>
     </div>
     <div class="matrix-wrap">
       <span class="matrix-y-label">SEVERIDADE</span>
@@ -50,7 +72,7 @@ const matrixCells = computed(() => levels.flatMap((severity) =>
     </div>
     <div class="matrix-legend">
       <span><i class="low"></i> Baixo</span><span><i class="medium"></i> Médio</span><span><i class="high"></i> Alto</span>
-      <small>{{ risks.length }} riscos mapeados</small>
+      <small>{{ selectedAssessments.length }} riscos mapeados</small>
     </div>
   </article>
 </template>
@@ -59,6 +81,7 @@ const matrixCells = computed(() => levels.flatMap((severity) =>
 .matrix-panel { padding: 20px; }
 .chart-heading .eyebrow { margin: 0 0 6px; color: #b16d51; font-size: 8px; }
 .chart-heading h2 { margin: 0; color: #29493b; font-size: 15px; }
+.chart-heading select { max-width: 155px; height: 29px; padding: 0 6px; border: 1px solid #e5e9e2; border-radius: 4px; color: #65776c; background: white; font-size: 8px; }
 .matrix-wrap { display: flex; align-items: stretch; gap: 9px; margin: 20px 7px 0; }
 .matrix-y-label { align-self: center; color: #9ba69e; font-size: 7px; letter-spacing: .8px; writing-mode: vertical-rl; transform: rotate(180deg); }
 .matrix-content { flex: 1; }

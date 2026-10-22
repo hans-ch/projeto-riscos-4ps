@@ -2,12 +2,14 @@
 import { computed, onMounted, ref } from "vue";
 import AppSidebar from "./Components/AppSidebar.vue";
 import BenchmarkPanel from "./Components/BenchmarkPanel.vue";
+import DimensionComparisonChart from "./Components/DimensionComparisonChart.vue";
 import ExposureChart from "./Components/ExposureChart.vue";
 import HistoryChart from "./Components/HistoryChart.vue";
 import MetricCard from "./Components/MetricCard.vue";
 import ReportCard from "./Components/ReportCard.vue";
 import RiskMatrix from "./Components/RiskMatrix.vue";
 import RiskRegistration from "./Components/RiskRegistration.vue";
+import RiskVerdictPanel from "./Components/RiskVerdictPanel.vue";
 import WelcomePanel from "./Components/WelcomePanel.vue";
 
 const analysis = ref(null);
@@ -106,6 +108,14 @@ function onRiskCreated(risk) {
   success.value = "Risco cadastrado. Execute uma nova análise para incluí-lo nos resultados.";
 }
 
+function onRiskUpdated(updatedRisk) {
+  const index = registeredRisks.value.findIndex((risk) => risk.id === updatedRisk.id);
+  if (index !== -1) registeredRisks.value[index] = updatedRisk;
+  analysis.value = null;
+  error.value = "";
+  success.value = "As avaliações das quatro dimensões foram atualizadas.";
+}
+
 async function saveBenchmark(reference) {
   savingBenchmark.value = true;
   benchmarkError.value = "";
@@ -177,6 +187,7 @@ onMounted(async () => {
           v-if="activeView === 'Cadastro de riscos'"
           :risks="registeredRisks"
           @created="onRiskCreated"
+          @updated="onRiskUpdated"
         />
 
         <template v-else-if="activeView === 'Benchmark'">
@@ -209,6 +220,19 @@ onMounted(async () => {
             <div><strong>Análise OpenFAIR concluída</strong><p>Resultados salvos no SQLite e adicionados ao histórico.</p></div>
             <span class="sim-count">{{ analysis.resumo.simulacoes_por_risco.toLocaleString("pt-BR") }} simulações / risco</span>
           </div>
+          <div v-if="analysis.resumo.herdados_pendentes_revisao" class="notice inherited-notice" role="note">
+            <span>i</span>
+            <div>
+              <strong>Avaliações antigas precisam ser revisadas</strong>
+              <p>{{ analysis.resumo.herdados_pendentes_revisao }} pontuações foram herdadas da avaliação única anterior e copiadas para as quatro dimensões. Elas não são avaliações dimensionais independentes. Revise-as em “Cadastro de riscos”.</p>
+            </div>
+          </div>
+
+          <RiskVerdictPanel
+            :risks="analysis.riscos"
+            :portfolio-decision="analysis.resumo.parecer_carteira"
+            :format-currency="formatCurrency"
+          />
 
           <section class="metric-grid" aria-label="Resumo da exposição">
             <MetricCard
@@ -241,6 +265,13 @@ onMounted(async () => {
           <section class="analytics-grid">
             <ExposureChart :risks="analysis.riscos" :format-currency="formatCurrency" />
             <RiskMatrix :risks="analysis.riscos" />
+          </section>
+          <section class="dimension-comparison-section">
+            <DimensionComparisonChart
+              :dimensions="analysis.resumo.dimensoes"
+              :format-currency="formatCurrency"
+              :format-percent="formatPercent"
+            />
           </section>
 
           <section class="comparison-grid">

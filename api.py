@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from analysis_service import (
+    RISK_DIMENSIONS,
     create_risk,
     get_analysis_history,
     get_benchmark_reference,
@@ -15,15 +16,40 @@ from analysis_service import (
     list_risks,
     run_analysis,
     save_benchmark_reference,
+    update_risk_dimensions,
 )
+
+
+class RiskDimensionInput(BaseModel):
+    dimension: Literal[
+        "Pessoas",
+        "Processos",
+        "Produtos",
+        "Políticas governamentais",
+    ]
+    severity: int = Field(ge=1, le=5)
+    probability: int = Field(ge=1, le=5)
+
+
+def validate_dimensions(
+    dimensions: list[RiskDimensionInput],
+) -> list[RiskDimensionInput]:
+    submitted = [assessment.dimension for assessment in dimensions]
+    if len(submitted) != len(RISK_DIMENSIONS) or set(submitted) != set(RISK_DIMENSIONS):
+        raise ValueError("Informe uma pontuação para cada uma das quatro dimensões.")
+    return dimensions
 
 
 class RiskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     category: str = Field(min_length=1, max_length=100)
-    severity: int = Field(ge=1, le=5)
-    probability: int = Field(ge=1, le=5)
+    dimensions: list[RiskDimensionInput] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_all_dimensions(self) -> "RiskCreate":
+        validate_dimensions(self.dimensions)
+        return self
 
     @field_validator("title", "category")
     @classmethod
@@ -39,6 +65,15 @@ class RiskCreate(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+
+class RiskDimensionsUpdate(BaseModel):
+    dimensions: list[RiskDimensionInput] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_all_dimensions(self) -> "RiskDimensionsUpdate":
+        validate_dimensions(self.dimensions)
+        return self
 
 
 class BenchmarkReference(BaseModel):
@@ -91,7 +126,25 @@ def get_risks() -> list[dict[str, Any]]:
 
 @app.post("/api/risks", status_code=status.HTTP_201_CREATED)
 def add_risk(risk: RiskCreate) -> dict[str, Any]:
-    return create_risk(**risk.model_dump())
+    payload = risk.model_dump()
+    payload["dimensions"] = [
+        assessment.model_dump() for assessment in risk.dimensions
+    ]
+    return create_risk(**payload)
+
+
+@app.put("/api/risks/{risk_id}/dimensions")
+def put_risk_dimensions(
+    risk_id: int,
+    assessment: RiskDimensionsUpdate,
+) -> dict[str, Any]:
+    dimensions = [
+        item.model_dump() for item in assessment.dimensions
+    ]
+    updated = update_risk_dimensions(risk_id, dimensions)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Risco não encontrado.")
+    return updated
 
 
 @app.get("/api/analysis/history")

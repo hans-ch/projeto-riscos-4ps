@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sqlite3
 import tempfile
@@ -41,6 +42,14 @@ LOSS = {
 CONTROL_REDUCTION = {"Concluída": 0.30, "Em andamento": 0.10, "Pendente": 0.0}
 MAX_CONTROL_REDUCTION = 0.70
 SIMULATIONS_PER_RISK = 10_000
+LOW_EXPOSURE_LIMIT = 50_000
+HIGH_EXPOSURE_LIMIT = 200_000
+RISK_DIMENSIONS = (
+    "Pessoas",
+    "Processos",
+    "Produtos",
+    "Políticas governamentais",
+)
 REPORT_CSS = """
 <style>
   :root { color-scheme: light; font-family: Inter, "Segoe UI", sans-serif; color: #183b32; }
@@ -77,6 +86,15 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 severidade INTEGER,
                 probabilidade INTEGER
             );
+            CREATE TABLE IF NOT EXISTS risk_dimensions (
+                risco_id INTEGER NOT NULL,
+                dimension TEXT NOT NULL,
+                severity INTEGER NOT NULL CHECK (severity BETWEEN 1 AND 5),
+                probability INTEGER NOT NULL CHECK (probability BETWEEN 1 AND 5),
+                assessment_source TEXT NOT NULL DEFAULT 'assessed',
+                PRIMARY KEY (risco_id, dimension),
+                FOREIGN KEY (risco_id) REFERENCES riscos(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS analises_risco (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 risco_id INTEGER,
@@ -106,6 +124,17 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 classificacao_fair TEXT,
                 FOREIGN KEY (risco_id) REFERENCES riscos(id)
             );
+            CREATE TABLE IF NOT EXISTS dimension_results_fair (
+                risco_id INTEGER NOT NULL,
+                dimension TEXT NOT NULL,
+                data_execucao TEXT NOT NULL,
+                perda_media_inerente REAL NOT NULL,
+                perda_media_residual REAL NOT NULL,
+                p95_residual REAL NOT NULL,
+                classificacao_fair TEXT NOT NULL,
+                PRIMARY KEY (risco_id, dimension),
+                FOREIGN KEY (risco_id) REFERENCES riscos(id)
+            );
             CREATE TABLE IF NOT EXISTS analysis_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 analyzed_at TEXT NOT NULL,
@@ -114,7 +143,8 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 p95_total REAL NOT NULL,
                 control_reduction REAL NOT NULL,
                 risk_count INTEGER NOT NULL,
-                simulations_per_risk INTEGER NOT NULL
+                simulations_per_risk INTEGER NOT NULL,
+                dimension_metrics TEXT NOT NULL DEFAULT '{}'
             );
             CREATE TABLE IF NOT EXISTS benchmark_reference (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -139,6 +169,13 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
             );
             """
         )
+        history_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(analysis_history)")
+        }
+        if "dimension_metrics" not in history_columns:
+            connection.execute(
+                "ALTER TABLE analysis_history ADD COLUMN dimension_metrics TEXT NOT NULL DEFAULT '{}'"
+            )
         connection.execute(
             """
             INSERT OR IGNORE INTO benchmark_reference
@@ -227,6 +264,16 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                     (8, 4, "João Pereira", today, "Risco de incêndio em depósito", "Concluída", "Sistema de sprinklers", "Em andamento"),
                 ],
             )
+        for dimension in RISK_DIMENSIONS:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO risk_dimensions
+                    (risco_id, dimension, severity, probability, assessment_source)
+                SELECT id, ?, severidade, probabilidade, 'inherited'
+                FROM riscos WHERE severidade BETWEEN 1 AND 5 AND probabilidade BETWEEN 1 AND 5
+                """,
+                (dimension,),
+            )
 
 
 def _build_model(
@@ -234,10 +281,15 @@ def _build_model(
     probability: int,
     severity: int,
     frequency_factor: float = 1.0,
+    random_seed: int = 42,
 ) -> FairModel:
     frequency = FREQUENCY[int(probability)]
     loss = LOSS[int(severity)]
-    model = FairModel(name=name, n_simulations=SIMULATIONS_PER_RISK, random_seed=42)
+    model = FairModel(
+        name=name,
+        n_simulations=SIMULATIONS_PER_RISK,
+        random_seed=random_seed,
+    )
     model.input_data(
         "Loss Event Frequency",
         low=frequency[0] * frequency_factor,
@@ -250,11 +302,80 @@ def _build_model(
 
 
 def _classify_fair(mean_loss: float) -> str:
-    if mean_loss >= 200_000:
+    if mean_loss >= HIGH_EXPOSURE_LIMIT:
         return "Alto"
-    if mean_loss >= 50_000:
+    if mean_loss >= LOW_EXPOSURE_LIMIT:
         return "Médio"
     return "Baixo"
+
+
+def _format_brl(value: float) -> str:
+    return f"{value:,.0f}".replace(",", ".")
+
+
+def _build_risk_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
+    classification_order = {"Baixo": 0, "Médio": 1, "Alto": 2}
+    highest_dimension = max(
+        dimensions,
+        key=lambda item: classification_order[item["classification"]],
+    )
+    non_low_dimensions = [
+        item for item in dimensions if item["classification"] != "Baixo"
+    ]
+    relevant_dimensions = non_low_dimensions or [
+        max(dimensions, key=lambda item: item["residual_loss"])
+    ]
+    details = "; ".join(
+        (
+            f'{item["dimension"]}: {item["classification"]}, exposição residual '
+            f'média de R$ {_format_brl(item["residual_loss"])}/ano, matriz '
+            f'{item["severity"]}×{item["probability"]} e redução por controles '
+            f'de {item["control_reduction"]:.0%}'
+        )
+        for item in relevant_dimensions
+    )
+
+    if highest_dimension["classification"] == "Alto":
+        justification = (
+            "Não favorável: pelo menos uma dimensão apresenta exposição residual "
+            f"alta (R$ {_format_brl(HIGH_EXPOSURE_LIMIT)}/ano ou mais). "
+            "É necessário tratar os fatores críticos "
+            f"antes de aceitar o risco. {details}."
+        )
+    elif highest_dimension["classification"] == "Médio":
+        justification = (
+            "Não favorável para aceitação sem revisão: existe exposição residual "
+            f"média (de R$ {_format_brl(LOW_EXPOSURE_LIMIT)} a menos de "
+            f"R$ {_format_brl(HIGH_EXPOSURE_LIMIT)} por ano), que exige plano "
+            f"de mitigação e acompanhamento. {details}."
+        )
+    else:
+        justification = (
+            "Favorável pelo critério atual: as quatro dimensões apresentam "
+            f"exposição residual média inferior a R$ {_format_brl(LOW_EXPOSURE_LIMIT)} por ano. "
+            f"Maior exposição observada: {details}. Isso não significa ausência de risco."
+        )
+
+    provisional = any(item["inherited"] for item in dimensions)
+    if provisional:
+        justification += (
+            " Parecer provisório: há pontuações herdadas da avaliação anterior "
+            "que ainda precisam de revisão."
+        )
+
+    return {
+        "status": (
+            "Favorável"
+            if highest_dimension["classification"] == "Baixo"
+            else "Não favorável"
+        ),
+        "nivel": highest_dimension["classification"],
+        "provisorio": provisional,
+        "justificativa": justification,
+        "dimensoes_relevantes": [
+            item["dimension"] for item in relevant_dimensions
+        ],
+    }
 
 
 def _classify_matrix(level: int) -> str:
@@ -277,18 +398,44 @@ def list_risks(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
             ORDER BY id DESC
             """
         ).fetchall()
-    return [dict(risk) for risk in risks]
+        dimensions = connection.execute(
+            """
+            SELECT risco_id, dimension, severity, probability, assessment_source
+            FROM risk_dimensions
+            ORDER BY CASE dimension
+                WHEN 'Pessoas' THEN 1
+                WHEN 'Processos' THEN 2
+                WHEN 'Produtos' THEN 3
+                WHEN 'Políticas governamentais' THEN 4
+            END
+            """
+        ).fetchall()
+    dimensions_by_risk: dict[int, list[dict[str, Any]]] = {}
+    for assessment in dimensions:
+        dimensions_by_risk.setdefault(assessment["risco_id"], []).append(
+            {
+                "dimension": assessment["dimension"],
+                "severity": assessment["severity"],
+                "probability": assessment["probability"],
+                "inherited": assessment["assessment_source"] == "inherited",
+            }
+        )
+    return [
+        {**dict(risk), "dimensions": dimensions_by_risk.get(risk["id"], [])}
+        for risk in risks
+    ]
 
 
 def create_risk(
     title: str,
     description: str | None,
     category: str,
-    severity: int,
-    probability: int,
+    dimensions: list[dict[str, Any]],
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
     with closing(sqlite3.connect(database_path)) as connection, connection:
+        severity = max(assessment["severity"] for assessment in dimensions)
+        probability = max(assessment["probability"] for assessment in dimensions)
         cursor = connection.execute(
             """
             INSERT INTO riscos (titulo, descricao, categoria, severidade, probabilidade)
@@ -297,6 +444,22 @@ def create_risk(
             (title, description, category, severity, probability),
         )
         risk_id = cursor.lastrowid
+        connection.executemany(
+            """
+            INSERT INTO risk_dimensions
+                (risco_id, dimension, severity, probability, assessment_source)
+            VALUES (?, ?, ?, ?, 'assessed')
+            """,
+            [
+                (
+                    risk_id,
+                    assessment["dimension"],
+                    assessment["severity"],
+                    assessment["probability"],
+                )
+                for assessment in dimensions
+            ],
+        )
 
     return {
         "id": risk_id,
@@ -305,7 +468,60 @@ def create_risk(
         "category": category,
         "severity": severity,
         "probability": probability,
+        "dimensions": [{**assessment, "inherited": False} for assessment in dimensions],
     }
+
+
+def update_risk_dimensions(
+    risk_id: int,
+    dimensions: list[dict[str, Any]],
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any] | None:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        exists = connection.execute(
+            "SELECT 1 FROM riscos WHERE id = ?",
+            (risk_id,),
+        ).fetchone()
+        if exists is None:
+            return None
+
+        connection.executemany(
+            """
+            INSERT INTO risk_dimensions
+                (risco_id, dimension, severity, probability, assessment_source)
+            VALUES (?, ?, ?, ?, 'assessed')
+            ON CONFLICT(risco_id, dimension) DO UPDATE SET
+                severity = excluded.severity,
+                probability = excluded.probability,
+                assessment_source = 'assessed'
+            """,
+            [
+                (
+                    risk_id,
+                    assessment["dimension"],
+                    assessment["severity"],
+                    assessment["probability"],
+                )
+                for assessment in dimensions
+            ],
+        )
+        connection.execute(
+            """
+            UPDATE riscos
+            SET severidade = ?, probabilidade = ?
+            WHERE id = ?
+            """,
+            (
+                max(assessment["severity"] for assessment in dimensions),
+                max(assessment["probability"] for assessment in dimensions),
+                risk_id,
+            ),
+        )
+
+    return next(
+        (risk for risk in list_risks(database_path) if risk["id"] == risk_id),
+        None,
+    )
 
 
 def get_analysis_history(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
@@ -314,13 +530,20 @@ def get_analysis_history(database_path: Path = DATABASE_PATH) -> list[dict[str, 
         history = connection.execute(
             """
             SELECT id, analyzed_at, inherent_loss, residual_loss, p95_total,
-                   control_reduction, risk_count, simulations_per_risk
+                   control_reduction, risk_count, simulations_per_risk,
+                   dimension_metrics
             FROM analysis_history
             ORDER BY id DESC
             LIMIT 20
             """
         ).fetchall()
-    return [dict(run) for run in reversed(history)]
+    result = []
+    for run in reversed(history):
+        item = dict(run)
+        dimension_metrics = json.loads(item.pop("dimension_metrics"))
+        item["dimensions"] = dimension_metrics if isinstance(dimension_metrics, list) else []
+        result.append(item)
+    return result
 
 
 def get_benchmark_reference(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
@@ -393,12 +616,19 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
     connection = sqlite3.connect(database_path)
     try:
         risks = pd.read_sql_query(
-            "SELECT id, titulo, categoria, severidade, probabilidade FROM riscos",
+            "SELECT id, titulo, categoria FROM riscos",
             connection,
         )
         if risks.empty:
             raise ValueError("Não há riscos cadastrados para executar a análise.")
 
+        assessments = pd.read_sql_query(
+            """
+            SELECT risco_id, dimension, severity, probability, assessment_source
+            FROM risk_dimensions
+            """,
+            connection,
+        )
         controls = pd.read_sql_query(
             "SELECT risco_id, status_acao FROM medidas_controle",
             connection,
@@ -421,8 +651,30 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             )
 
         rows: list[dict[str, Any]] = []
-        residual_models: list[FairModel] = []
+        all_inherent_models: list[FairModel] = []
+        all_residual_models: list[FairModel] = []
+        models_by_dimension: dict[str, dict[str, list[FairModel]]] = {
+            dimension: {"inherent": [], "residual": []}
+            for dimension in RISK_DIMENSIONS
+        }
+        legacy_assessments = 0
         for risk in risks.itertuples(index=False):
+            risk_assessments = assessments.loc[assessments["risco_id"] == risk.id]
+            assessment_by_dimension = {
+                item.dimension: item
+                for item in risk_assessments.itertuples(index=False)
+            }
+            missing_dimensions = [
+                dimension
+                for dimension in RISK_DIMENSIONS
+                if dimension not in assessment_by_dimension
+            ]
+            if missing_dimensions:
+                raise ValueError(
+                    f"O risco '{risk.titulo}' não tem avaliações para: "
+                    f"{', '.join(missing_dimensions)}."
+                )
+
             status_values = controls.loc[
                 controls["risco_id"] == risk.id,
                 "status_acao",
@@ -431,66 +683,188 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                 sum(CONTROL_REDUCTION.get(status, 0.0) for status in status_values),
                 MAX_CONTROL_REDUCTION,
             )
-            inherent_model = _build_model(
-                f"{risk.id} Inerente",
-                risk.probabilidade,
-                risk.severidade,
-            )
-            residual_model = _build_model(
-                f"{risk.id} Residual",
-                risk.probabilidade,
-                risk.severidade,
-                frequency_factor=1 - reduction,
-            )
-            residual_models.append(residual_model)
-
-            inherent_risk = inherent_model.export_results()["Risk"]
-            residual_risk = residual_model.export_results()["Risk"]
-            matrix_level = int(risk.severidade) * int(risk.probabilidade)
             occurrence = (
                 occurrences.loc[occurrences["risco_id"] == risk.id].iloc[0]
                 if not occurrences.empty
                 and not occurrences.loc[occurrences["risco_id"] == risk.id].empty
                 else None
             )
-            mean_residual = float(residual_risk.mean())
+            risk_dimension_rows = []
+            risk_inherent_models: list[FairModel] = []
+            risk_residual_models: list[FairModel] = []
+            for dimension in RISK_DIMENSIONS:
+                assessment = assessment_by_dimension[dimension]
+                severity = int(assessment.severity)
+                probability = int(assessment.probability)
+                random_seed = int(risk.id) * len(RISK_DIMENSIONS) + RISK_DIMENSIONS.index(dimension)
+                inherent_model = _build_model(
+                    f"{risk.id} {dimension} Inerente",
+                    probability,
+                    severity,
+                    random_seed=random_seed,
+                )
+                residual_model = _build_model(
+                    f"{risk.id} {dimension} Residual",
+                    probability,
+                    severity,
+                    frequency_factor=1 - reduction,
+                    random_seed=random_seed,
+                )
+                inherent_values = inherent_model.export_results()["Risk"]
+                residual_values = residual_model.export_results()["Risk"]
+                matrix_score = severity * probability
+                dimension_result = {
+                    "dimension": dimension,
+                    "severity": severity,
+                    "probability": probability,
+                    "inherited": assessment.assessment_source == "inherited",
+                    "matrix_score": matrix_score,
+                    "matrix_classification": _classify_matrix(matrix_score),
+                    "inherent_loss": round(float(inherent_values.mean())),
+                    "residual_loss": round(float(residual_values.mean())),
+                    "p95_residual": round(float(np.percentile(residual_values, 95))),
+                    "classification": _classify_fair(float(residual_values.mean())),
+                    "control_reduction": reduction,
+                }
+                risk_dimension_rows.append(dimension_result)
+                risk_inherent_models.append(inherent_model)
+                risk_residual_models.append(residual_model)
+                all_inherent_models.append(inherent_model)
+                all_residual_models.append(residual_model)
+                models_by_dimension[dimension]["inherent"].append(inherent_model)
+                models_by_dimension[dimension]["residual"].append(residual_model)
+                if dimension_result["inherited"]:
+                    legacy_assessments += 1
+
+            risk_total_model = FairMetaModel(
+                name=f"{risk.id} Total das dimensões",
+                models=risk_residual_models,
+            )
+            risk_total_model.calculate_all()
+            risk_total = risk_total_model.export_results()["Risk"]
+            matrix_assessment = max(
+                risk_dimension_rows,
+                key=lambda item: item["matrix_score"],
+            )
+            mean_inherent = sum(
+                item["inherent_loss"] for item in risk_dimension_rows
+            )
+            mean_residual = sum(
+                item["residual_loss"] for item in risk_dimension_rows
+            )
+            verdict = _build_risk_verdict(risk_dimension_rows)
             rows.append(
                 {
                     "id": int(risk.id),
                     "risco": risk.titulo,
                     "categoria": risk.categoria,
-                    "severidade": int(risk.severidade),
-                    "probabilidade": int(risk.probabilidade),
+                    "severidade": matrix_assessment["severity"],
+                    "probabilidade": matrix_assessment["probability"],
                     "pessoa_afetada": occurrence["nome"] if occurrence is not None else "Não informado",
                     "data_ocorrencia": occurrence["data_ocorrencia"] if occurrence is not None else "Não informada",
                     "descricao_ocorrencia": occurrence["descricao_ocorrencia"] if occurrence is not None else "Não informada",
                     "resolucao": occurrence["acao"] if occurrence is not None else "Sem ação registrada",
                     "status": occurrence["status_acao"] if occurrence is not None else "Pendente",
-                    "matriz": f"{matrix_level} - {_classify_matrix(matrix_level)}",
+                    "matriz": f"{matrix_assessment['matrix_score']} - {matrix_assessment['matrix_classification']}",
                     "reducao_controles": reduction,
-                    "perda_inerente": round(float(inherent_risk.mean())),
-                    "perda_residual": round(mean_residual),
-                    "p95_residual": round(float(np.percentile(residual_risk, 95))),
+                    "perda_inerente": mean_inherent,
+                    "perda_residual": mean_residual,
+                    "p95_residual": round(float(np.percentile(risk_total, 95))),
                     "classificacao_fair": _classify_fair(mean_residual),
+                    "parecer_final": verdict,
+                    "dimensoes": risk_dimension_rows,
                 }
             )
 
         rows.sort(key=lambda row: row["perda_residual"], reverse=True)
-        meta_model = FairMetaModel(
-            name="Risco total residual",
-            models=residual_models,
+        inherent_meta = FairMetaModel(
+            name="Exposição inerente total 4Ps",
+            models=all_inherent_models,
         )
-        meta_model.calculate_all()
-        total_risk = meta_model.export_results()["Risk"]
-        inherent_sum = sum(row["perda_inerente"] for row in rows)
-        residual_sum = sum(row["perda_residual"] for row in rows)
+        inherent_meta.calculate_all()
+        inherent_total = inherent_meta.export_results()["Risk"]
+        residual_meta = FairMetaModel(
+            name="Exposição residual total 4Ps",
+            models=all_residual_models,
+        )
+        residual_meta.calculate_all()
+        total_risk = residual_meta.export_results()["Risk"]
+
+        dimension_summaries = []
+        for dimension in RISK_DIMENSIONS:
+            inherent_dimension_meta = FairMetaModel(
+                name=f"{dimension} Inerente",
+                models=models_by_dimension[dimension]["inherent"],
+            )
+            inherent_dimension_meta.calculate_all()
+            inherent_dimension = inherent_dimension_meta.export_results()["Risk"]
+            residual_dimension_meta = FairMetaModel(
+                name=f"{dimension} Residual",
+                models=models_by_dimension[dimension]["residual"],
+            )
+            residual_dimension_meta.calculate_all()
+            residual_dimension = residual_dimension_meta.export_results()["Risk"]
+            inherent_mean = float(inherent_dimension.mean())
+            residual_mean = float(residual_dimension.mean())
+            dimension_summaries.append(
+                {
+                    "dimension": dimension,
+                    "inherent_loss": round(inherent_mean),
+                    "residual_loss": round(residual_mean),
+                    "p95_total": round(float(np.percentile(residual_dimension, 95))),
+                    "control_reduction": (
+                        1 - residual_mean / inherent_mean if inherent_mean > 0 else 0
+                    ),
+                    "risk_count": len(models_by_dimension[dimension]["residual"]),
+                    "classification": _classify_fair(residual_mean),
+                }
+            )
+
+        inherent_sum = float(inherent_total.mean())
+        residual_sum = float(total_risk.mean())
         summary = {
-            "perda_inerente": inherent_sum,
-            "perda_residual": round(float(total_risk.mean())),
+            "perda_inerente": round(inherent_sum),
+            "perda_residual": round(residual_sum),
             "p95_total": round(float(np.percentile(total_risk, 95))),
             "reducao_geral": 1 - residual_sum / inherent_sum if inherent_sum > 0 else 0,
             "quantidade_riscos": len(rows),
             "simulacoes_por_risco": SIMULATIONS_PER_RISK,
+            "quantidade_dimensoes": len(RISK_DIMENSIONS),
+            "dimensoes": dimension_summaries,
+            "herdados_pendentes_revisao": legacy_assessments,
+            "metodologia_total": (
+                "Soma das exposições FAIR das quatro dimensões; "
+                "a interpretação depende da ausência de sobreposição entre dimensões."
+            ),
+        }
+        unfavorable_risks = [
+            row for row in rows if row["parecer_final"]["status"] != "Favorável"
+        ]
+        provisional_risks = [
+            row for row in rows if row["parecer_final"]["provisorio"]
+        ]
+        summary["parecer_carteira"] = {
+            "status": (
+                "Não favorável" if unfavorable_risks else "Favorável"
+            ),
+            "riscos_nao_favoraveis": len(unfavorable_risks),
+            "riscos_provisorios": len(provisional_risks),
+            "criterio": (
+                "Favorável somente quando cada P tem exposição residual média "
+                f"inferior a R$ {_format_brl(LOW_EXPOSURE_LIMIT)}/ano. Médio: de R$ "
+                f"{_format_brl(LOW_EXPOSURE_LIMIT)} a menos de "
+                f"R$ {_format_brl(HIGH_EXPOSURE_LIMIT)}; "
+                f"alto: R$ {_format_brl(HIGH_EXPOSURE_LIMIT)} ou mais."
+            ),
+            "justificativa": (
+                f"{len(unfavorable_risks)} de {len(rows)} riscos não atendem "
+                "ao critério de exposição baixa em todas as quatro dimensões. "
+                f"{len(provisional_risks)} ainda têm pontuações herdadas e "
+                "precisam de revisão."
+                if unfavorable_risks or provisional_risks
+                else "Todos os riscos estão em nível baixo nas quatro dimensões. "
+                "Isso não significa ausência de risco."
+            ),
         }
 
         analyzed_at = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -498,8 +872,9 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             """
             INSERT INTO analysis_history
                 (analyzed_at, inherent_loss, residual_loss, p95_total,
-                 control_reduction, risk_count, simulations_per_risk)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 control_reduction, risk_count, simulations_per_risk,
+                 dimension_metrics)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analyzed_at,
@@ -509,6 +884,7 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                 summary["reducao_geral"],
                 summary["quantidade_riscos"],
                 summary["simulacoes_por_risco"],
+                json.dumps(dimension_summaries, ensure_ascii=False),
             ),
         )
         connection.execute("DELETE FROM resultados_fair")
@@ -531,12 +907,56 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                 for row in rows
             ],
         )
+        connection.execute("DELETE FROM dimension_results_fair")
+        connection.executemany(
+            """
+            INSERT INTO dimension_results_fair
+                (risco_id, dimension, data_execucao, perda_media_inerente,
+                 perda_media_residual, p95_residual, classificacao_fair)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row["id"],
+                    dimension_result["dimension"],
+                    date.today().isoformat(),
+                    dimension_result["inherent_loss"],
+                    dimension_result["residual_loss"],
+                    dimension_result["p95_residual"],
+                    dimension_result["classification"],
+                )
+                for row in rows
+                for dimension_result in row["dimensoes"]
+            ],
+        )
         connection.commit()
 
         excel_buffer = io.BytesIO()
-        pd.DataFrame(rows).to_excel(excel_buffer, index=False, sheet_name="Riscos FAIR")
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            pd.DataFrame(
+                [
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in ("dimensoes", "parecer_final")
+                    }
+                    | {
+                        "parecer_final": row["parecer_final"]["status"],
+                        "nivel_parecer": row["parecer_final"]["nivel"],
+                        "justificativa_parecer": row["parecer_final"]["justificativa"],
+                    }
+                    for row in rows
+                ]
+            ).to_excel(writer, index=False, sheet_name="Riscos")
+            pd.DataFrame(
+                [
+                    {"risco": row["risco"], **dimension_result}
+                    for row in rows
+                    for dimension_result in row["dimensoes"]
+                ]
+            ).to_excel(writer, index=False, sheet_name="Dimensões 4Ps")
         _latest_excel_report = excel_buffer.getvalue()
-        _latest_html_report = _build_report(residual_models, rows)
+        _latest_html_report = _build_report(all_residual_models, rows)
         REPORTS_PATH.mkdir(parents=True, exist_ok=True)
         (REPORTS_PATH / "relatorio_fair.html").write_text(
             _latest_html_report,
