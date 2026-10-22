@@ -2,11 +2,21 @@
 import { computed, onMounted, ref } from "vue";
 
 const analysis = ref(null);
+const registeredRisks = ref([]);
 const activeView = ref("Visão geral");
 const search = ref("");
 const selectedCategory = ref("Todas");
 const loading = ref(false);
+const savingRisk = ref(false);
 const error = ref("");
+const success = ref("");
+const newRisk = ref({
+  title: "",
+  description: "",
+  category: "",
+  severity: 3,
+  probability: 3,
+});
 
 const categories = computed(() => [
   "Todas",
@@ -24,6 +34,13 @@ const filteredRisks = computed(() => {
 
 const topRisks = computed(() => (analysis.value?.riscos ?? []).slice(0, 5));
 const maxLoss = computed(() => Math.max(...topRisks.value.map((risk) => risk.perda_residual), 1));
+const riskSeverityLabel = (value) => ["Muito baixa", "Baixa", "Moderada", "Alta", "Muito alta"][value - 1];
+
+async function loadRisks() {
+  const response = await fetch("/api/risks");
+  if (!response.ok) throw new Error("Não foi possível carregar os riscos cadastrados.");
+  registeredRisks.value = await response.json();
+}
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("pt-BR", {
@@ -40,15 +57,50 @@ function formatPercent(value) {
 async function executeAnalysis() {
   loading.value = true;
   error.value = "";
+  success.value = "";
   try {
     const response = await fetch("/api/analysis", { method: "POST" });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "Não foi possível executar a análise.");
+    if (!response.ok) {
+      const detail = Array.isArray(payload.detail)
+        ? payload.detail.map((item) => item.msg).join(" ")
+        : payload.detail;
+      throw new Error(detail || "Não foi possível executar a análise.");
+    }
     analysis.value = payload;
+    await loadRisks();
   } catch (cause) {
     error.value = cause.message || "Falha ao conectar com a API. Verifique se o servidor está ativo.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function createRisk() {
+  savingRisk.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    const response = await fetch("/api/risks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newRisk.value),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const detail = Array.isArray(payload.detail)
+        ? payload.detail.map((item) => item.msg).join(" ")
+        : payload.detail;
+      throw new Error(detail || "Não foi possível cadastrar o risco.");
+    }
+    registeredRisks.value.unshift(payload);
+    analysis.value = null;
+    success.value = "Risco cadastrado com sucesso. Execute uma nova análise para atualizar os resultados.";
+    newRisk.value = { title: "", description: "", category: "", severity: 3, probability: 3 };
+  } catch (cause) {
+    error.value = cause.message || "Falha ao conectar com a API. Verifique se o servidor está ativo.";
+  } finally {
+    savingRisk.value = false;
   }
 }
 
@@ -60,8 +112,9 @@ onMounted(async () => {
   try {
     const response = await fetch("/api/health");
     if (!response.ok) throw new Error("A API não está disponível.");
-  } catch {
-    error.value = "Não foi possível conectar à API. Inicie o servidor Python para continuar.";
+    await loadRisks();
+  } catch (cause) {
+    error.value = cause.message || "Não foi possível conectar à API. Inicie o servidor Python para continuar.";
   }
 });
 </script>
@@ -76,7 +129,7 @@ onMounted(async () => {
       <div class="nav-label">ESPAÇO DE TRABALHO</div>
       <nav class="navigation" aria-label="Navegação principal">
         <button
-          v-for="item in ['Visão geral', 'Riscos']"
+          v-for="item in ['Visão geral', 'Cadastro de riscos']"
           :key="item"
           :class="{ active: activeView === item }"
           @click="activeView = item"
@@ -100,10 +153,12 @@ onMounted(async () => {
         <div class="page-heading">
           <div>
             <p class="eyebrow">SEGURANÇA OPERACIONAL · 4Ps</p>
-            <h1>Risco em perspectiva<span>.</span></h1>
-            <p class="intro">Uma leitura clara da exposição, dos controles e do impacto potencial.</p>
+            <h1>{{ activeView === "Cadastro de riscos" ? "Cadastro de riscos" : "Risco em perspectiva" }}<span>.</span></h1>
+            <p class="intro">
+              {{ activeView === "Cadastro de riscos" ? "Registre os perigos e parâmetros para incluir na próxima análise." : "Uma leitura clara da exposição, dos controles e do impacto potencial." }}
+            </p>
           </div>
-          <button class="run-button" :disabled="loading" @click="executeAnalysis">
+          <button v-if="activeView !== 'Cadastro de riscos'" class="run-button" :disabled="loading" @click="executeAnalysis">
             <span v-if="loading" class="spinner"></span>
             <span v-else>↗</span>
             {{ loading ? "Calculando riscos..." : "Executar análise" }}
@@ -113,8 +168,95 @@ onMounted(async () => {
         <div v-if="error" class="notice error-notice" role="alert">
           <span>!</span><div><strong>Não foi possível concluir a operação</strong><p>{{ error }}</p></div>
         </div>
+        <div v-if="success" class="notice success-notice" role="status">
+          <span>✓</span><div><strong>Cadastro concluído</strong><p>{{ success }}</p></div>
+        </div>
 
-        <template v-if="analysis">
+        <template v-if="activeView === 'Cadastro de riscos'">
+          <section class="risk-create-layout">
+            <form class="panel risk-form" @submit.prevent="createRisk">
+              <div class="panel-heading form-heading">
+                <div><p class="eyebrow">NOVO REGISTRO</p><h2>Descreva o risco</h2></div>
+                <span class="form-step">01 / 01</span>
+              </div>
+              <label class="form-field">
+                <span>Nome do risco <b>*</b></span>
+                <input v-model.trim="newRisk.title" required maxlength="200" placeholder="Ex.: Queda durante trabalho em altura" />
+              </label>
+              <label class="form-field">
+                <span>Categoria <b>*</b></span>
+                <input v-model.trim="newRisk.category" required maxlength="100" list="risk-categories" placeholder="Selecione ou informe uma categoria" />
+                <datalist id="risk-categories">
+                  <option v-for="category in [...new Set(registeredRisks.map((risk) => risk.category).filter(Boolean))]" :key="category" :value="category" />
+                  <option value="Mecânico" /><option value="Elétrico" /><option value="Químico" />
+                  <option value="Físico" /><option value="Ergonômico" /><option value="Incêndio" />
+                </datalist>
+              </label>
+              <label class="form-field">
+                <span>Descrição <small>OPCIONAL</small></span>
+                <textarea v-model.trim="newRisk.description" maxlength="2000" rows="3" placeholder="Contexto, local ou situação que pode causar o evento"></textarea>
+              </label>
+              <div class="form-field-grid">
+                <label class="form-field">
+                  <span>Severidade <b>*</b></span>
+                  <select v-model.number="newRisk.severity" required>
+                    <option v-for="level in [1, 2, 3, 4, 5]" :key="level" :value="level">{{ level }} — {{ riskSeverityLabel(level) }}</option>
+                  </select>
+                </label>
+                <label class="form-field">
+                  <span>Probabilidade <b>*</b></span>
+                  <select v-model.number="newRisk.probability" required>
+                    <option v-for="level in [1, 2, 3, 4, 5]" :key="level" :value="level">{{ level }} — {{ riskSeverityLabel(level) }}</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-actions">
+                <p><b>*</b> Campos obrigatórios</p>
+                <button class="run-button" type="submit" :disabled="savingRisk">
+                  <span v-if="savingRisk" class="spinner"></span><span v-else>＋</span>
+                  {{ savingRisk ? "Salvando risco..." : "Cadastrar risco" }}
+                </button>
+              </div>
+            </form>
+
+            <aside class="panel risk-guidance">
+              <div class="guidance-icon">◇</div>
+              <p class="eyebrow">ESCALA DE AVALIAÇÃO</p>
+              <h2>Uma base para priorizar.</h2>
+              <p>Use a escala de 1 a 5 para estimar a severidade do impacto e a chance de ocorrência. Os valores podem ser refinados conforme sua avaliação.</p>
+              <div class="scale-row"><span>1</span><i></i><span>2</span><i></i><span>3</span><i></i><span>4</span><i></i><span>5</span></div>
+              <div class="scale-caption"><span>Muito baixa</span><span>Muito alta</span></div>
+              <div class="matrix-note"><strong>Próximo passo</strong><p>Após cadastrar, execute uma nova análise para calcular as perdas estimadas pelo modelo FAIR.</p></div>
+            </aside>
+          </section>
+
+          <section class="panel risks-panel registered-risks-panel">
+            <div class="panel-heading table-heading">
+              <div><p class="eyebrow">CARTEIRA DE RISCOS</p><h2>Riscos cadastrados <span class="count-pill">{{ registeredRisks.length }}</span></h2></div>
+              <label class="search-box"><span>⌕</span><input v-model="search" placeholder="Buscar risco..." /></label>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>RISCO</th><th>CATEGORIA</th><th>DESCRIÇÃO</th><th>SEVERIDADE</th><th>PROBABILIDADE</th><th>MATRIZ</th></tr></thead>
+                <tbody>
+                  <tr v-for="risk in registeredRisks.filter((item) => `${item.title} ${item.category}`.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR')))" :key="risk.id">
+                    <td><strong>{{ risk.title }}</strong><small>ID {{ risk.id }}</small></td>
+                    <td><span class="category-tag">{{ risk.category }}</span></td>
+                    <td class="description-cell">{{ risk.description || "Sem descrição" }}</td>
+                    <td>{{ risk.severity }} — {{ riskSeverityLabel(risk.severity) }}</td>
+                    <td>{{ risk.probability }} — {{ riskSeverityLabel(risk.probability) }}</td>
+                    <td><span class="risk-level" :class="risk.severity * risk.probability >= 15 ? 'alto' : risk.severity * risk.probability >= 8 ? 'médio' : 'baixo'">{{ risk.severity * risk.probability }} / 25</span></td>
+                  </tr>
+                  <tr v-if="!registeredRisks.length"><td colspan="6" class="empty-cell">Nenhum risco cadastrado.</td></tr>
+                  <tr v-else-if="!registeredRisks.some((item) => `${item.title} ${item.category}`.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR')))"><td colspan="6" class="empty-cell">Nenhum risco corresponde à busca.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <footer class="table-footer"><span>{{ registeredRisks.length }} riscos salvos no SQLite</span><span>Edite os níveis no próximo ciclo de análise</span></footer>
+          </section>
+        </template>
+
+        <template v-else-if="analysis">
           <div class="analysis-banner">
             <span class="check-mark">✓</span>
             <div><strong>Análise OpenFAIR concluída</strong><p>Resultados calculados e salvos no banco SQLite.</p></div>
