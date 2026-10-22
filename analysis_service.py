@@ -5,7 +5,7 @@ import os
 import sqlite3
 import tempfile
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +106,24 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 classificacao_fair TEXT,
                 FOREIGN KEY (risco_id) REFERENCES riscos(id)
             );
+            CREATE TABLE IF NOT EXISTS analysis_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analyzed_at TEXT NOT NULL,
+                inherent_loss REAL NOT NULL,
+                residual_loss REAL NOT NULL,
+                p95_total REAL NOT NULL,
+                control_reduction REAL NOT NULL,
+                risk_count INTEGER NOT NULL,
+                simulations_per_risk INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS benchmark_reference (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                name TEXT NOT NULL,
+                residual_loss REAL,
+                p95_total REAL,
+                control_reduction REAL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS log_ocorrencias (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 risco_id INTEGER,
@@ -120,6 +138,14 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 FOREIGN KEY (pessoa_id) REFERENCES pessoas(id)
             );
             """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO benchmark_reference
+                (id, name, residual_loss, p95_total, control_reduction, updated_at)
+            VALUES (1, 'Referência externa', NULL, NULL, NULL, ?)
+            """,
+            (datetime.now().astimezone().isoformat(timespec="seconds"),),
         )
 
         if connection.execute("SELECT COUNT(*) FROM riscos").fetchone()[0] == 0:
@@ -239,6 +265,105 @@ def _classify_matrix(level: int) -> str:
     return "Baixo"
 
 
+def list_risks(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.row_factory = sqlite3.Row
+        risks = connection.execute(
+            """
+            SELECT id, titulo AS title, descricao AS description,
+                   categoria AS category, severidade AS severity,
+                   probabilidade AS probability
+            FROM riscos
+            ORDER BY id DESC
+            """
+        ).fetchall()
+    return [dict(risk) for risk in risks]
+
+
+def create_risk(
+    title: str,
+    description: str | None,
+    category: str,
+    severity: int,
+    probability: int,
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any]:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO riscos (titulo, descricao, categoria, severidade, probabilidade)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (title, description, category, severity, probability),
+        )
+        risk_id = cursor.lastrowid
+
+    return {
+        "id": risk_id,
+        "title": title,
+        "description": description,
+        "category": category,
+        "severity": severity,
+        "probability": probability,
+    }
+
+
+def get_analysis_history(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.row_factory = sqlite3.Row
+        history = connection.execute(
+            """
+            SELECT id, analyzed_at, inherent_loss, residual_loss, p95_total,
+                   control_reduction, risk_count, simulations_per_risk
+            FROM analysis_history
+            ORDER BY id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    return [dict(run) for run in reversed(history)]
+
+
+def get_benchmark_reference(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.row_factory = sqlite3.Row
+        reference = connection.execute(
+            """
+            SELECT name, residual_loss, p95_total, control_reduction, updated_at
+            FROM benchmark_reference
+            WHERE id = 1
+            """
+        ).fetchone()
+    if reference is None:
+        raise RuntimeError("A referência do benchmark não foi inicializada.")
+    return dict(reference)
+
+
+def save_benchmark_reference(
+    name: str,
+    residual_loss: float | None,
+    p95_total: float | None,
+    control_reduction: float | None,
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any]:
+    updated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO benchmark_reference
+                (id, name, residual_loss, p95_total, control_reduction, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                residual_loss = excluded.residual_loss,
+                p95_total = excluded.p95_total,
+                control_reduction = excluded.control_reduction,
+                updated_at = excluded.updated_at
+            """,
+            (name, residual_loss, p95_total, control_reduction, updated_at),
+        )
+    return get_benchmark_reference(database_path)
+
+
 def _build_report(models: list[FairModel], rows: list[dict[str, Any]]) -> str:
     with tempfile.TemporaryDirectory() as temp_dir:
         report_path = Path(temp_dir) / "relatorio_fair.html"
@@ -334,6 +459,8 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                     "id": int(risk.id),
                     "risco": risk.titulo,
                     "categoria": risk.categoria,
+                    "severidade": int(risk.severidade),
+                    "probabilidade": int(risk.probabilidade),
                     "pessoa_afetada": occurrence["nome"] if occurrence is not None else "Não informado",
                     "data_ocorrencia": occurrence["data_ocorrencia"] if occurrence is not None else "Não informada",
                     "descricao_ocorrencia": occurrence["descricao_ocorrencia"] if occurrence is not None else "Não informada",
@@ -366,6 +493,24 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             "simulacoes_por_risco": SIMULATIONS_PER_RISK,
         }
 
+        analyzed_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        connection.execute(
+            """
+            INSERT INTO analysis_history
+                (analyzed_at, inherent_loss, residual_loss, p95_total,
+                 control_reduction, risk_count, simulations_per_risk)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                analyzed_at,
+                summary["perda_inerente"],
+                summary["perda_residual"],
+                summary["p95_total"],
+                summary["reducao_geral"],
+                summary["quantidade_riscos"],
+                summary["simulacoes_por_risco"],
+            ),
+        )
         connection.execute("DELETE FROM resultados_fair")
         connection.executemany(
             """

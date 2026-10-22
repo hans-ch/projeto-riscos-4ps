@@ -50,15 +50,20 @@ O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando 
 
 ## Funcionalidades
 
+- Cadastro de riscos com categoria, descrição, severidade e probabilidade
+- Validação dos dados e persistência imediata no SQLite
 - Execução de 10.000 simulações PyFAIR por risco
 - Comparação entre perdas inerentes e residuais e cálculo do P95 total
+- Histórico persistente das 20 execuções mais recentes para comparar tendências
+- Benchmark configurável com metas próprias de perda residual, P95 e redução dos controles
+- Gráficos de exposição inerente/residual, evolução histórica e matriz de risco 5 × 5
 - Aplicação de redução de frequência conforme o status dos controles
 - Registro dos resultados em `resultados_fair` no SQLite
 - Exportação persistente do relatório HTML e da planilha Excel em `reports/`
 
 ## Estrutura principal
 
-- `frontend/`: interface Vue 3 e configuração do Vite
+- `frontend/`: interface Vue 3, configuração do Vite e componentes em `src/Components/`
 - `api.py`: API FastAPI e endpoints de análise e relatórios
 - `analysis_service.py`: banco SQLite, modelos PyFAIR e geração dos relatórios
 - `app.py`: inicializador local da API
@@ -68,6 +73,11 @@ O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando 
 ## Endpoints
 
 - `GET /api/health`: verifica se a API está disponível
+- `GET /api/risks`: lista os riscos cadastrados
+- `POST /api/risks`: cadastra um risco para análises futuras
+- `GET /api/analysis/history`: lista as 20 execuções mais recentes
+- `GET /api/benchmark`: consulta a referência configurada
+- `PUT /api/benchmark`: salva nome e métricas de referência próprios
 - `POST /api/analysis`: executa a análise e atualiza os resultados no SQLite
 - `GET /api/reports/html`: baixa o relatório HTML da análise mais recente
 - `GET /api/reports/excel`: baixa a planilha Excel da análise mais recente
