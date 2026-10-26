@@ -524,6 +524,79 @@ def update_risk_dimensions(
     )
 
 
+def update_risk(
+    risk_id: int,
+    title: str,
+    description: str | None,
+    category: str,
+    dimensions: list[dict[str, Any]],
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any] | None:
+    severity = max(assessment["severity"] for assessment in dimensions)
+    probability = max(assessment["probability"] for assessment in dimensions)
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        cursor = connection.execute(
+            """
+            UPDATE riscos
+            SET titulo = ?, descricao = ?, categoria = ?,
+                severidade = ?, probabilidade = ?
+            WHERE id = ?
+            """,
+            (title, description, category, severity, probability, risk_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+
+        connection.executemany(
+            """
+            INSERT INTO risk_dimensions
+                (risco_id, dimension, severity, probability, assessment_source)
+            VALUES (?, ?, ?, ?, 'assessed')
+            ON CONFLICT(risco_id, dimension) DO UPDATE SET
+                severity = excluded.severity,
+                probability = excluded.probability,
+                assessment_source = 'assessed'
+            """,
+            [
+                (
+                    risk_id,
+                    assessment["dimension"],
+                    assessment["severity"],
+                    assessment["probability"],
+                )
+                for assessment in dimensions
+            ],
+        )
+
+    return next(
+        (risk for risk in list_risks(database_path) if risk["id"] == risk_id),
+        None,
+    )
+
+
+def delete_risk(risk_id: int, database_path: Path = DATABASE_PATH) -> bool:
+    related_tables = (
+        "analises_risco",
+        "medidas_controle",
+        "resultados_fair",
+        "dimension_results_fair",
+        "log_ocorrencias",
+        "risk_dimensions",
+    )
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        exists = connection.execute(
+            "SELECT 1 FROM riscos WHERE id = ?",
+            (risk_id,),
+        ).fetchone()
+        if exists is None:
+            return False
+
+        for table in related_tables:
+            connection.execute(f"DELETE FROM {table} WHERE risco_id = ?", (risk_id,))
+        connection.execute("DELETE FROM riscos WHERE id = ?", (risk_id,))
+    return True
+
+
 def get_analysis_history(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
     with closing(sqlite3.connect(database_path)) as connection:
         connection.row_factory = sqlite3.Row

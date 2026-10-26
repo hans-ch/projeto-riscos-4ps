@@ -116,6 +116,13 @@ function onRiskUpdated(updatedRisk) {
   success.value = "As avaliações das quatro dimensões foram atualizadas.";
 }
 
+function onRiskDeleted(riskId) {
+  registeredRisks.value = registeredRisks.value.filter((risk) => risk.id !== riskId);
+  analysis.value = null;
+  error.value = "";
+  success.value = "Risco excluído, incluindo controles, ocorrências e resultados associados.";
+}
+
 async function saveBenchmark(reference) {
   savingBenchmark.value = true;
   benchmarkError.value = "";
@@ -188,6 +195,7 @@ onMounted(async () => {
           :risks="registeredRisks"
           @created="onRiskCreated"
           @updated="onRiskUpdated"
+          @deleted="onRiskDeleted"
         />
 
         <template v-else-if="activeView === 'Benchmark'">

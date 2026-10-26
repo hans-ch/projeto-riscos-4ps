@@ -81,6 +81,8 @@ O servidor cria as tabelas ausentes e só insere os dados demonstrativos quando 
 - `GET /api/health`: verifica se a API está disponível
 - `GET /api/risks`: lista os riscos cadastrados
 - `POST /api/risks`: cadastra um risco para análises futuras
+- `PUT /api/risks/{id}`: edita os dados e as quatro avaliações de um risco
+- `DELETE /api/risks/{id}`: exclui o risco e seus controles, ocorrências e resultados FAIR associados; os resumos agregados de análises anteriores permanecem no histórico
 - `PUT /api/risks/{id}/dimensions`: atualiza as quatro avaliações de um risco
 - `GET /api/analysis/history`: lista as 20 execuções mais recentes
 - `GET /api/benchmark`: consulta a referência configurada

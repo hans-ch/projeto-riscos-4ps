@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from analysis_service import (
     RISK_DIMENSIONS,
     create_risk,
+    delete_risk,
     get_analysis_history,
     get_benchmark_reference,
     get_latest_excel_report,
@@ -17,6 +18,7 @@ from analysis_service import (
     run_analysis,
     save_benchmark_reference,
     update_risk_dimensions,
+    update_risk,
 )
 
 
@@ -131,6 +133,25 @@ def add_risk(risk: RiskCreate) -> dict[str, Any]:
         assessment.model_dump() for assessment in risk.dimensions
     ]
     return create_risk(**payload)
+
+
+@app.put("/api/risks/{risk_id}")
+def put_risk(risk_id: int, risk: RiskCreate) -> dict[str, Any]:
+    payload = risk.model_dump()
+    payload["dimensions"] = [
+        assessment.model_dump() for assessment in risk.dimensions
+    ]
+    updated = update_risk(risk_id, **payload)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Risco não encontrado.")
+    return updated
+
+
+@app.delete("/api/risks/{risk_id}", status_code=status.HTTP_200_OK)
+def remove_risk(risk_id: int) -> dict[str, int | bool]:
+    if not delete_risk(risk_id):
+        raise HTTPException(status_code=404, detail="Risco não encontrado.")
+    return {"deleted": True, "risk_id": risk_id}
 
 
 @app.put("/api/risks/{risk_id}/dimensions")

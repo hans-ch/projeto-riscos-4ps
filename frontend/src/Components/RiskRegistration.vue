@@ -6,11 +6,13 @@ const props = defineProps({
   risks: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["created", "updated"]);
+const emit = defineEmits(["created", "updated", "deleted"]);
 const saving = ref(false);
 const savingEdit = ref(false);
+const deletingRisk = ref(null);
 const error = ref("");
 const editError = ref("");
+const deleteError = ref("");
 const query = ref("");
 const form = reactive({
   title: "",
@@ -19,9 +21,12 @@ const form = reactive({
   dimensions: createDefaultDimensions(),
 });
 const editingRisk = ref(null);
-const editDimensions = ref([]);
-const levels = [1, 2, 3, 4, 5];
-const levelLabel = (value) => ["Muito baixa", "Baixa", "Moderada", "Alta", "Muito alta"][value - 1];
+const editForm = reactive({
+  title: "",
+  description: "",
+  category: "",
+  dimensions: [],
+});
 const dimensionNames = ["Pessoas", "Processos", "Produtos", "Políticas governamentais"];
 const categories = computed(() => [...new Set(props.risks.map((risk) => risk.category).filter(Boolean))]);
 const filteredRisks = computed(() => {
@@ -46,13 +51,19 @@ function getDimension(risk, name) {
 function openDimensionEditor(risk) {
   editingRisk.value = risk.id;
   editError.value = "";
-  editDimensions.value = dimensionNames.map((dimension) => {
-    const existing = getDimension(risk, dimension);
-    return {
-      dimension,
-      severity: existing?.severity ?? null,
-      probability: existing?.probability ?? null,
-    };
+  deleteError.value = "";
+  Object.assign(editForm, {
+    title: risk.title,
+    description: risk.description ?? "",
+    category: risk.category ?? "",
+    dimensions: dimensionNames.map((dimension) => {
+      const existing = getDimension(risk, dimension);
+      return {
+        dimension,
+        severity: existing?.severity ?? null,
+        probability: existing?.probability ?? null,
+      };
+    }),
   });
 }
 
@@ -86,21 +97,21 @@ async function createRisk() {
   }
 }
 
-async function saveDimensions(risk) {
+async function saveRisk(risk) {
   savingEdit.value = true;
   editError.value = "";
   try {
-    const response = await fetch(`/api/risks/${risk.id}/dimensions`, {
+    const response = await fetch(`/api/risks/${risk.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dimensions: editDimensions.value }),
+      body: JSON.stringify(editForm),
     });
     const payload = await response.json();
     if (!response.ok) {
       const detail = Array.isArray(payload.detail)
         ? payload.detail.map((item) => item.msg).join(" ")
         : payload.detail;
-      throw new Error(detail || "Não foi possível atualizar as dimensões.");
+      throw new Error(detail || "Não foi possível atualizar o risco.");
     }
     emit("updated", payload);
     editingRisk.value = null;
@@ -108,6 +119,32 @@ async function saveDimensions(risk) {
     editError.value = cause.message || "Falha ao conectar com a API.";
   } finally {
     savingEdit.value = false;
+  }
+}
+
+async function deleteRisk(risk) {
+  const confirmed = window.confirm(
+    `Excluir o risco "${risk.title}"? Os controles, ocorrências e resultados FAIR associados também serão removidos. Os resumos agregados das análises anteriores permanecem no histórico.`,
+  );
+  if (!confirmed) return;
+
+  deletingRisk.value = risk.id;
+  deleteError.value = "";
+  try {
+    const response = await fetch(`/api/risks/${risk.id}`, { method: "DELETE" });
+    const payload = await response.json();
+    if (!response.ok) {
+      const detail = Array.isArray(payload.detail)
+        ? payload.detail.map((item) => item.msg).join(" ")
+        : payload.detail;
+      throw new Error(detail || "Não foi possível excluir o risco.");
+    }
+    if (editingRisk.value === risk.id) editingRisk.value = null;
+    emit("deleted", risk.id);
+  } catch (cause) {
+    deleteError.value = cause.message || "Falha ao conectar com a API.";
+  } finally {
+    deletingRisk.value = null;
   }
 }
 </script>
@@ -169,9 +206,10 @@ async function saveDimensions(risk) {
         <div><p class="eyebrow">CARTEIRA DE RISCOS</p><h2>Riscos cadastrados <span class="count-pill">{{ risks.length }}</span></h2></div>
         <label class="search-box"><span>⌕</span><input v-model="query" placeholder="Buscar risco..." /></label>
       </div>
+      <p v-if="deleteError" class="form-error delete-error" role="alert">{{ deleteError }}</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>RISCO</th><th>CATEGORIA</th><th>DESCRIÇÃO</th><th>DIMENSÕES</th><th>MATRIZ MÁXIMA</th><th>AVALIAÇÃO</th></tr></thead>
+          <thead><tr><th>RISCO</th><th>CATEGORIA</th><th>DESCRIÇÃO</th><th>DIMENSÕES</th><th>MATRIZ MÁXIMA</th><th>AVALIAÇÃO</th><th>AÇÕES</th></tr></thead>
           <tbody>
             <template v-for="risk in filteredRisks" :key="risk.id">
             <tr>
@@ -192,21 +230,53 @@ async function saveDimensions(risk) {
               <td class="assessment-cell">
                 <span v-if="risk.dimensions.some((item) => item.inherited)" class="inherited-label">Herdada · revise</span>
                 <span v-else class="assessed-label">Avaliada</span>
-                <button class="edit-dimensions-button" @click="openDimensionEditor(risk)">Revisar</button>
+              </td>
+              <td class="risk-actions">
+                <button
+                  class="risk-action-button edit"
+                  type="button"
+                  :disabled="savingEdit || deletingRisk === risk.id"
+                  :aria-label="`Editar ${risk.title}`"
+                  @click="openDimensionEditor(risk)"
+                >Editar</button>
+                <button
+                  class="risk-action-button delete"
+                  type="button"
+                  :disabled="savingEdit || deletingRisk === risk.id"
+                  :aria-label="`Excluir ${risk.title}`"
+                  @click="deleteRisk(risk)"
+                >{{ deletingRisk === risk.id ? "Excluindo..." : "Excluir" }}</button>
               </td>
             </tr>
             <tr v-if="editingRisk === risk.id">
-              <td colspan="6" class="dimension-editor-cell">
-                <form class="dimension-editor" @submit.prevent="saveDimensions(risk)">
-                  <div class="editor-heading"><strong>Atualizar avaliação · {{ risk.title }}</strong><button type="button" @click="editingRisk = null">Fechar</button></div>
-                  <DimensionScoreFields v-model="editDimensions" :prefix="`edit-${risk.id}`" />
+              <td colspan="7" class="dimension-editor-cell">
+                <form class="dimension-editor" @submit.prevent="saveRisk(risk)">
+                  <div class="editor-heading"><strong>Editar risco · {{ risk.title }}</strong><button type="button" @click="editingRisk = null">Fechar</button></div>
+                  <div class="edit-details-grid">
+                    <label class="form-field">
+                      <span>Nome do risco <b>*</b></span>
+                      <input v-model.trim="editForm.title" required maxlength="200" />
+                    </label>
+                    <label class="form-field">
+                      <span>Categoria <b>*</b></span>
+                      <input v-model.trim="editForm.category" required maxlength="100" />
+                    </label>
+                    <label class="form-field edit-description">
+                      <span>Descrição <small>OPCIONAL</small></span>
+                      <textarea v-model.trim="editForm.description" maxlength="2000" rows="2"></textarea>
+                    </label>
+                  </div>
+                  <div class="dimension-fields-heading">
+                    <div><strong>Avaliações dos quatro P’s <b>*</b></strong><small>Atualize severidade e probabilidade de cada dimensão.</small></div>
+                  </div>
+                  <DimensionScoreFields v-model="editForm.dimensions" :prefix="`edit-${risk.id}`" />
                   <p v-if="editError" class="form-error" role="alert">{{ editError }}</p>
-                  <button class="run-button" type="submit" :disabled="savingEdit">{{ savingEdit ? "Salvando..." : "Salvar as quatro dimensões" }}</button>
+                  <button class="run-button" type="submit" :disabled="savingEdit || deletingRisk === risk.id">{{ savingEdit ? "Salvando..." : "Salvar alterações" }}</button>
                 </form>
               </td>
             </tr>
             </template>
-            <tr v-if="!filteredRisks.length"><td colspan="6" class="empty-cell">{{ risks.length ? "Nenhum risco corresponde à busca." : "Nenhum risco cadastrado." }}</td></tr>
+            <tr v-if="!filteredRisks.length"><td colspan="7" class="empty-cell">{{ risks.length ? "Nenhum risco corresponde à busca." : "Nenhum risco cadastrado." }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -227,8 +297,20 @@ async function saveDimensions(risk) {
 .assessment-cell { min-width: 112px; }
 .inherited-label, .assessed-label { display: block; margin-bottom: 4px; color: #a57343; font-size: 7px; }
 .assessed-label { color: #4f805f; }
-.edit-dimensions-button, .editor-heading button { padding: 0; border: 0; color: #315d4b; background: transparent; font-size: 8px; font-weight: 700; }
+.editor-heading button { padding: 0; border: 0; color: #315d4b; background: transparent; font-size: 8px; font-weight: 700; }
+.risk-actions { min-width: 110px; white-space: nowrap; }
+.risk-action-button { margin: 2px; padding: 5px 7px; border: 1px solid #dce6dc; border-radius: 4px; color: #315d4b; background: #f5f8f3; font-size: 8px; font-weight: 700; cursor: pointer; }
+.risk-action-button.delete { border-color: #f0d9d2; color: #a34e3c; background: #fcf3ef; }
+.risk-action-button:disabled { cursor: wait; opacity: .6; }
+.delete-error { margin: 10px 18px; }
 .dimension-editor-cell { padding: 0; white-space: normal; }
 .dimension-editor { padding: 17px; background: #fafbf8; }
 .editor-heading { display: flex; justify-content: space-between; margin-bottom: 10px; color: #405b4a; font-size: 10px; }
+.edit-details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.edit-details-grid .form-field { margin: 0; }
+.edit-description { grid-column: 1 / -1; }
+@media (max-width: 700px) {
+  .edit-details-grid { grid-template-columns: 1fr; }
+  .edit-description { grid-column: auto; }
+}
 </style>
