@@ -41,7 +41,13 @@ function createDefaultDimensions() {
     "Processos",
     "Produtos",
     "Políticas governamentais",
-  ].map((dimension) => ({ dimension, severity: null, probability: null }));
+  ].map((dimension) => ({
+    dimension,
+    severity: null,
+    probability: null,
+    evidence: "",
+    justification: "",
+  }));
 }
 
 function getDimension(risk, name) {
@@ -62,6 +68,8 @@ function openDimensionEditor(risk) {
         dimension,
         severity: existing?.severity ?? null,
         probability: existing?.probability ?? null,
+        evidence: existing?.evidence ?? "",
+        justification: existing?.justification ?? "",
       };
     }),
   });
@@ -124,7 +132,7 @@ async function saveRisk(risk) {
 
 async function deleteRisk(risk) {
   const confirmed = window.confirm(
-    `Excluir o risco "${risk.title}"? Os controles, ocorrências e resultados FAIR associados também serão removidos. Os resumos agregados das análises anteriores permanecem no histórico.`,
+    `Excluir o risco "${risk.title}"? Os controles, ocorrências e resultados associados também serão removidos. Os resumos das análises anteriores permanecem no histórico.`,
   );
   if (!confirmed) return;
 
@@ -177,7 +185,13 @@ async function deleteRisk(risk) {
         <div class="dimension-fields-heading">
           <div><strong>Avalie cada dimensão <b>*</b></strong><small>Selecione severidade e probabilidade para os quatro P’s. Não há notas pré-preenchidas.</small></div>
         </div>
-        <DimensionScoreFields v-model="form.dimensions" prefix="new-risk" />
+        <DimensionScoreFields
+          v-model="form.dimensions"
+          prefix="new-risk"
+          :risk-title="form.title"
+          :risk-category="form.category"
+          :risk-description="form.description"
+        />
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="form-actions">
           <p><b>*</b> Campos obrigatórios</p>
@@ -196,7 +210,7 @@ async function deleteRisk(risk) {
         <div class="scale-row"><span>1</span><i></i><span>2</span><i></i><span>3</span><i></i><span>4</span><i></i><span>5</span></div>
         <div class="scale-caption"><span>Muito baixa</span><span>Muito alta</span></div>
         <div class="matrix-note"><strong>Os quatro P’s</strong><p>Registre cada risco em Pessoas, Processos, Produtos e Políticas governamentais. Cada dimensão precisa de duas notas independentes.</p></div>
-        <div class="matrix-note"><strong>Critério do parecer</strong><p>Favorável somente quando as quatro exposições residuais estiverem em nível baixo. Qualquer dimensão média ou alta pede revisão e mitigação.</p></div>
+        <div class="matrix-note"><strong>Critério do parecer</strong><p>Nota = severidade × probabilidade: baixo (1–7), médio (8–14), alto (15–25). O risco é favorável somente quando os quatro P’s ficam na faixa baixa.</p></div>
         <div class="matrix-note"><strong>Risco herdado</strong><p>As notas antigas aparecem marcadas como herdadas. Revise cada dimensão; não são avaliações independentes.</p></div>
       </aside>
     </section>
@@ -269,7 +283,13 @@ async function deleteRisk(risk) {
                   <div class="dimension-fields-heading">
                     <div><strong>Avaliações dos quatro P’s <b>*</b></strong><small>Atualize severidade e probabilidade de cada dimensão.</small></div>
                   </div>
-                  <DimensionScoreFields v-model="editForm.dimensions" :prefix="`edit-${risk.id}`" />
+                  <DimensionScoreFields
+                    v-model="editForm.dimensions"
+                    :prefix="`edit-${risk.id}`"
+                    :risk-title="editForm.title"
+                    :risk-category="editForm.category"
+                    :risk-description="editForm.description"
+                  />
                   <p v-if="editError" class="form-error" role="alert">{{ editError }}</p>
                   <button class="run-button" type="submit" :disabled="savingEdit || deletingRisk === risk.id">{{ savingEdit ? "Salvando..." : "Salvar alterações" }}</button>
                 </form>

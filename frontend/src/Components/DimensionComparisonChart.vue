@@ -1,41 +1,41 @@
 <script setup>
-import { computed } from "vue";
-
-const props = defineProps({
+defineProps({
   dimensions: { type: Array, default: () => [] },
-  formatCurrency: { type: Function, required: true },
-  formatPercent: { type: Function, required: true },
 });
-
-const maxLoss = computed(() => Math.max(
-  ...props.dimensions.map((item) => item.inherent_loss),
-  1,
-));
 </script>
 
 <template>
   <article class="panel dimension-chart">
     <div class="panel-heading chart-heading">
-      <div><p class="eyebrow">EXPOSIÇÃO POR P</p><h2>Comparação das quatro dimensões</h2></div>
-      <span class="chart-note">Total combinado = soma das dimensões</span>
+      <div><p class="eyebrow">DISTRIBUIÇÃO DAS NOTAS</p><h2>Classificação por dimensão</h2></div>
+      <span class="chart-note">Quantidade de riscos por faixa</span>
     </div>
     <div v-if="dimensions.length" class="dimension-bars">
-      <div class="dimension-legend"><span><i class="inherent-key"></i> Inerente</span><span><i class="residual-key"></i> Residual</span></div>
+      <div class="dimension-legend">
+        <span><i class="low-key"></i> Baixo</span>
+        <span><i class="medium-key"></i> Médio</span>
+        <span><i class="high-key"></i> Alto</span>
+      </div>
       <div v-for="item in dimensions" :key="item.dimension" class="dimension-row">
         <div class="dimension-name">{{ item.dimension }}</div>
         <div class="dimension-bar-pair">
-          <div class="dimension-track"><span class="inherent-fill" :style="{ width: `${item.inherent_loss / maxLoss * 100}%` }"></span></div>
-          <div class="dimension-track"><span class="residual-fill" :style="{ width: `${item.residual_loss / maxLoss * 100}%` }"></span></div>
+          <div class="dimension-track">
+            <span class="low-fill" :style="{ width: `${item.low_count / Math.max(item.risk_count, 1) * 100}%` }"></span>
+          </div>
+          <div class="dimension-track">
+            <span class="medium-fill" :style="{ width: `${item.medium_count / Math.max(item.risk_count, 1) * 100}%` }"></span>
+          </div>
+          <div class="dimension-track">
+            <span class="high-fill" :style="{ width: `${item.high_count / Math.max(item.risk_count, 1) * 100}%` }"></span>
+          </div>
         </div>
-        <div class="dimension-numbers">
-          <b>{{ formatCurrency(item.residual_loss) }}</b>
-          <small>{{ formatPercent(item.control_reduction) }} redução</small>
+        <div class="dimension-counts">
+          <b>{{ item.average_score }}<small>/25 média</small></b>
+          <span>{{ item.low_count }} baixo · {{ item.medium_count }} médio · {{ item.high_count }} alto</span>
         </div>
       </div>
-      <div class="dimension-axis"><span>R$ 0</span><span>{{ formatCurrency(maxLoss) }}</span></div>
     </div>
-    <div v-else class="chart-empty">Execute uma análise para comparar as quatro dimensões.</div>
-    <p class="dimension-caveat">O total somado é uma estimativa de planejamento; pode haver sobreposição entre exposições.</p>
+    <div v-else class="chart-empty">Execute uma análise para comparar as notas dos quatro P’s.</div>
   </article>
 </template>
 
@@ -49,24 +49,24 @@ const maxLoss = computed(() => Math.max(
 .dimension-legend { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 12px; color: #7b8980; font-size: 8px; }
 .dimension-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .dimension-legend i { width: 8px; height: 8px; border-radius: 2px; }
-.inherent-key { background: #d8b082; }
-.residual-key { background: #43836c; }
-.dimension-row { display: grid; grid-template-columns: minmax(115px, 1fr) minmax(90px, 1.6fr) minmax(84px, .7fr); align-items: center; gap: 10px; margin: 14px 0; }
+.low-key { background: #65a376; }
+.medium-key { background: #d3a64e; }
+.high-key { background: #c96f58; }
+.dimension-row { display: grid; grid-template-columns: minmax(115px, 1fr) minmax(90px, 1.5fr) minmax(115px, 1fr); align-items: center; gap: 10px; margin: 14px 0; }
 .dimension-name { color: #52685c; font-size: 9px; font-weight: 600; }
 .dimension-bar-pair { display: grid; gap: 4px; }
-.dimension-track { height: 6px; overflow: hidden; border-radius: 5px; background: #f0f2ed; }
-.dimension-track span { display: block; height: 100%; min-width: 2px; border-radius: inherit; }
-.inherent-fill { background: #d8b082; }
-.residual-fill { background: linear-gradient(90deg, #43836c, #82ad8e); }
-.dimension-numbers { display: grid; gap: 3px; text-align: right; }
-.dimension-numbers b { color: #536e5e; font-size: 8px; }
-.dimension-numbers small { color: #929e96; font-size: 7px; }
-.dimension-axis { display: flex; justify-content: space-between; margin: 12px 90px 0 34%; color: #a1aaa3; font-size: 8px; }
-.dimension-caveat { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid #edf0eb; color: #9a8a70; font-size: 8px; line-height: 1.5; }
+.dimension-track { height: 5px; overflow: hidden; border-radius: 5px; background: #f0f2ed; }
+.dimension-track span { display: block; height: 100%; min-width: 0; border-radius: inherit; }
+.low-fill { background: #65a376; }
+.medium-fill { background: #d3a64e; }
+.high-fill { background: #c96f58; }
+.dimension-counts { display: grid; gap: 3px; text-align: right; }
+.dimension-counts b { color: #536e5e; font-size: 9px; }
+.dimension-counts b small { margin-left: 4px; color: #929e96; font-size: 7px; font-weight: 400; }
+.dimension-counts > span { color: #929e96; font-size: 7px; }
 .chart-empty { padding: 32px 8px; color: #87948c; font-size: 10px; text-align: center; }
 @media (max-width: 700px) {
   .dimension-chart { padding: 16px 13px; }
-  .dimension-row { grid-template-columns: minmax(90px, 1fr) minmax(60px, 1fr) minmax(78px, .75fr); gap: 7px; }
-  .dimension-axis { margin-left: 31%; margin-right: 82px; }
+  .dimension-row { grid-template-columns: minmax(90px, 1fr) minmax(55px, 1fr) minmax(110px, .9fr); gap: 7px; }
 }
 </style>

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from threading import Lock
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
@@ -9,17 +10,19 @@ from analysis_service import (
     RISK_DIMENSIONS,
     create_risk,
     delete_risk,
-    get_analysis_history,
-    get_benchmark_reference,
     get_latest_excel_report,
     get_latest_html_report,
     initialize_database,
     list_risks,
-    run_analysis,
-    save_benchmark_reference,
     update_risk_dimensions,
     update_risk,
 )
+from analysis_service import _classify_matrix
+from local_ai import (
+    generate_dimension_justification,
+    get_local_ai_status,
+)
+from rating_analysis import get_rating_history, run_rating_analysis
 
 
 class RiskDimensionInput(BaseModel):
@@ -31,6 +34,44 @@ class RiskDimensionInput(BaseModel):
     ]
     severity: int = Field(ge=1, le=5)
     probability: int = Field(ge=1, le=5)
+    evidence: str = Field(min_length=10, max_length=1200)
+    justification: str = Field(min_length=10, max_length=1200)
+
+    @field_validator("evidence", "justification")
+    @classmethod
+    def strip_dimension_text(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 10:
+            raise ValueError("Informe pelo menos 10 caracteres.")
+        return value
+
+
+class DimensionExplanationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+    dimension: Literal[
+        "Pessoas",
+        "Processos",
+        "Produtos",
+        "Políticas governamentais",
+    ]
+    severity: int = Field(ge=1, le=5)
+    probability: int = Field(ge=1, le=5)
+    evidence: str = Field(min_length=10, max_length=1200)
+
+    @field_validator("title", "category", "evidence")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Este campo não pode ficar vazio.")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def strip_description(cls, value: str | None) -> str | None:
+        return value.strip() or None if value else None
 
 
 def validate_dimensions(
@@ -78,30 +119,6 @@ class RiskDimensionsUpdate(BaseModel):
         return self
 
 
-class BenchmarkReference(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    residual_loss: float | None = Field(default=None, ge=0)
-    p95_total: float | None = Field(default=None, ge=0)
-    control_reduction: float | None = Field(default=None, ge=0, le=1)
-
-    @field_validator("name")
-    @classmethod
-    def strip_name(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Informe o nome da referência.")
-        return value
-
-    @model_validator(mode="after")
-    def require_one_metric(self) -> "BenchmarkReference":
-        if all(
-            value is None
-            for value in (self.residual_loss, self.p95_total, self.control_reduction)
-        ):
-            raise ValueError("Informe ao menos uma métrica de referência.")
-        return self
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
@@ -110,10 +127,27 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Risco em Perspectiva",
-    description="API para análise quantitativa de riscos com o modelo FAIR.",
+    description="API para análise de riscos por matriz 4Ps e justificativas com IA local.",
     version="1.0.0",
     lifespan=lifespan,
 )
+
+_analysis_progress_lock = Lock()
+_analysis_active = False
+_analysis_progress: dict[str, Any] = {
+    "status": "idle",
+    "percent": 0,
+    "message": "Nenhuma análise em andamento.",
+}
+
+
+def _update_analysis_progress(percent: int, message: str) -> None:
+    with _analysis_progress_lock:
+        _analysis_progress.update(
+            status="running",
+            percent=percent,
+            message=message,
+        )
 
 
 @app.get("/api/health")
@@ -170,25 +204,84 @@ def put_risk_dimensions(
 
 @app.get("/api/analysis/history")
 def get_history() -> list[dict[str, Any]]:
-    return get_analysis_history()
+    return get_rating_history()
 
 
-@app.get("/api/benchmark")
-def get_benchmark() -> dict[str, Any]:
-    return get_benchmark_reference()
+@app.get("/api/ai/status")
+def local_ai_status() -> dict[str, Any]:
+    return get_local_ai_status()
 
 
-@app.put("/api/benchmark")
-def put_benchmark(reference: BenchmarkReference) -> dict[str, Any]:
-    return save_benchmark_reference(**reference.model_dump())
+@app.post("/api/ai/dimension-justification")
+def generate_risk_dimension_justification(
+    request: DimensionExplanationRequest,
+) -> dict[str, str]:
+    score = request.severity * request.probability
+    try:
+        explanation = generate_dimension_justification(
+            title=request.title,
+            category=request.category,
+            description=request.description,
+            dimension=request.dimension,
+            severity=request.severity,
+            probability=request.probability,
+            evidence=request.evidence,
+            classification=_classify_matrix(score),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {"justification": explanation}
+
+
+@app.get("/api/analysis/progress")
+def get_analysis_progress() -> dict[str, Any]:
+    with _analysis_progress_lock:
+        return dict(_analysis_progress)
 
 
 @app.post("/api/analysis")
 def execute_analysis() -> dict[str, Any]:
+    global _analysis_active
+
+    with _analysis_progress_lock:
+        if _analysis_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Já existe uma análise em andamento.",
+            )
+        _analysis_active = True
+        _analysis_progress.update(
+            status="running",
+            percent=0,
+            message="Iniciando análise dos riscos.",
+        )
+
     try:
-        return run_analysis()
+        result = run_rating_analysis(progress_callback=_update_analysis_progress)
     except ValueError as error:
+        with _analysis_progress_lock:
+            _analysis_progress.update(status="failed", message=str(error))
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        with _analysis_progress_lock:
+            _analysis_progress.update(
+                status="failed",
+                message=f"Falha durante a análise: {error}",
+            )
+        raise
+    else:
+        with _analysis_progress_lock:
+            _analysis_progress.update(
+                status="completed",
+                percent=100,
+                message="Análise concluída.",
+            )
+        return result
+    finally:
+        with _analysis_progress_lock:
+            _analysis_active = False
 
 
 @app.get("/api/reports/html", response_class=HTMLResponse)
@@ -198,7 +291,7 @@ def download_html_report() -> HTMLResponse:
         raise HTTPException(status_code=409, detail="Execute uma análise antes de baixar o relatório.")
     return HTMLResponse(
         content=report,
-        headers={"Content-Disposition": 'attachment; filename="relatorio_fair.html"'},
+        headers={"Content-Disposition": 'attachment; filename="relatorio_4ps.html"'},
     )
 
 
@@ -210,5 +303,5 @@ def download_excel_report() -> Response:
     return Response(
         content=report,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="relatorio_fair.xlsx"'},
+        headers={"Content-Disposition": 'attachment; filename="relatorio_4ps.xlsx"'},
     )

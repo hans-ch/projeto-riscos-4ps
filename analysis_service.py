@@ -8,7 +8,7 @@ import tempfile
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -91,9 +91,24 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 dimension TEXT NOT NULL,
                 severity INTEGER NOT NULL CHECK (severity BETWEEN 1 AND 5),
                 probability INTEGER NOT NULL CHECK (probability BETWEEN 1 AND 5),
+                evidence TEXT NOT NULL DEFAULT '',
+                justification TEXT NOT NULL DEFAULT '',
                 assessment_source TEXT NOT NULL DEFAULT 'assessed',
                 PRIMARY KEY (risco_id, dimension),
                 FOREIGN KEY (risco_id) REFERENCES riscos(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS dimension_results_matrix (
+                risco_id INTEGER NOT NULL,
+                dimension TEXT NOT NULL,
+                data_execucao TEXT NOT NULL,
+                severity INTEGER NOT NULL,
+                probability INTEGER NOT NULL,
+                matrix_score INTEGER NOT NULL,
+                classification TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                justification TEXT NOT NULL,
+                PRIMARY KEY (risco_id, dimension),
+                FOREIGN KEY (risco_id) REFERENCES riscos(id)
             );
             CREATE TABLE IF NOT EXISTS analises_risco (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -175,6 +190,21 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
         if "dimension_metrics" not in history_columns:
             connection.execute(
                 "ALTER TABLE analysis_history ADD COLUMN dimension_metrics TEXT NOT NULL DEFAULT '{}'"
+            )
+        if "rating_metrics" not in history_columns:
+            connection.execute(
+                "ALTER TABLE analysis_history ADD COLUMN rating_metrics TEXT NOT NULL DEFAULT '{}'"
+            )
+        risk_dimension_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(risk_dimensions)")
+        }
+        if "evidence" not in risk_dimension_columns:
+            connection.execute(
+                "ALTER TABLE risk_dimensions ADD COLUMN evidence TEXT NOT NULL DEFAULT ''"
+            )
+        if "justification" not in risk_dimension_columns:
+            connection.execute(
+                "ALTER TABLE risk_dimensions ADD COLUMN justification TEXT NOT NULL DEFAULT ''"
             )
         connection.execute(
             """
@@ -323,44 +353,49 @@ def _build_risk_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         item for item in dimensions if item["classification"] != "Baixo"
     ]
     relevant_dimensions = non_low_dimensions or [
-        max(dimensions, key=lambda item: item["residual_loss"])
+        max(dimensions, key=lambda item: item["matrix_score"])
     ]
     details = "; ".join(
         (
-            f'{item["dimension"]}: {item["classification"]}, exposição residual '
-            f'média de R$ {_format_brl(item["residual_loss"])}/ano, matriz '
-            f'{item["severity"]}×{item["probability"]} e redução por controles '
-            f'de {item["control_reduction"]:.0%}'
+            f'{item["dimension"]}: severidade {item["severity"]}, probabilidade '
+            f'{item["probability"]}, nota {item["matrix_score"]}/25 '
+            f'({item["classification"]})'
         )
         for item in relevant_dimensions
     )
 
     if highest_dimension["classification"] == "Alto":
         justification = (
-            "Não favorável: pelo menos uma dimensão apresenta exposição residual "
-            f"alta (R$ {_format_brl(HIGH_EXPOSURE_LIMIT)}/ano ou mais). "
-            "É necessário tratar os fatores críticos "
-            f"antes de aceitar o risco. {details}."
+            "Não favorável: pelo menos uma dimensão está na faixa alta da matriz "
+            f"(nota 15–25). Priorize as causas e evidências: {details}."
         )
     elif highest_dimension["classification"] == "Médio":
         justification = (
-            "Não favorável para aceitação sem revisão: existe exposição residual "
-            f"média (de R$ {_format_brl(LOW_EXPOSURE_LIMIT)} a menos de "
-            f"R$ {_format_brl(HIGH_EXPOSURE_LIMIT)} por ano), que exige plano "
-            f"de mitigação e acompanhamento. {details}."
+            "Não favorável sem revisão: existe ao menos uma dimensão na faixa "
+            f"média da matriz (nota 8–14). Defina ações de mitigação para: {details}."
         )
     else:
         justification = (
-            "Favorável pelo critério atual: as quatro dimensões apresentam "
-            f"exposição residual média inferior a R$ {_format_brl(LOW_EXPOSURE_LIMIT)} por ano. "
-            f"Maior exposição observada: {details}. Isso não significa ausência de risco."
+            "Favorável pelo critério da matriz: as quatro dimensões estão na faixa "
+            f"baixa (nota 1–7). Maior nota observada: {details}. Uma nota baixa "
+            "não significa ausência de risco."
         )
 
-    provisional = any(item["inherited"] for item in dimensions)
+    provisional = any(
+        item["inherited"] or not item["justification"].strip()
+        for item in dimensions
+    )
     if provisional:
         justification += (
-            " Parecer provisório: há pontuações herdadas da avaliação anterior "
-            "que ainda precisam de revisão."
+            " Parecer pendente de revisão: confira as notas herdadas e preencha "
+            "as justificativas que estão faltando."
+        )
+    missing_justifications = sum(
+        not item["justification"].strip() for item in dimensions
+    )
+    if missing_justifications:
+        justification += (
+            f" Há {missing_justifications} justificativas dimensionais pendentes."
         )
 
     return {
@@ -371,10 +406,17 @@ def _build_risk_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "nivel": highest_dimension["classification"],
         "provisorio": provisional,
+        "justificativas_pendentes": missing_justifications,
         "justificativa": justification,
         "dimensoes_relevantes": [
             item["dimension"] for item in relevant_dimensions
         ],
+        "criterio": (
+            "Pontuação da dimensão = severidade × probabilidade. "
+            "Baixo: 1–7; médio: 8–14; alto: 15–25. "
+            "A carteira é favorável somente quando todos os quatro P’s "
+            "estão na faixa baixa."
+        ),
     }
 
 
@@ -400,7 +442,8 @@ def list_risks(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
         ).fetchall()
         dimensions = connection.execute(
             """
-            SELECT risco_id, dimension, severity, probability, assessment_source
+            SELECT risco_id, dimension, severity, probability, evidence,
+                   justification, assessment_source
             FROM risk_dimensions
             ORDER BY CASE dimension
                 WHEN 'Pessoas' THEN 1
@@ -417,6 +460,8 @@ def list_risks(database_path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
                 "dimension": assessment["dimension"],
                 "severity": assessment["severity"],
                 "probability": assessment["probability"],
+                "evidence": assessment["evidence"],
+                "justification": assessment["justification"],
                 "inherited": assessment["assessment_source"] == "inherited",
             }
         )
@@ -447,8 +492,9 @@ def create_risk(
         connection.executemany(
             """
             INSERT INTO risk_dimensions
-                (risco_id, dimension, severity, probability, assessment_source)
-            VALUES (?, ?, ?, ?, 'assessed')
+                (risco_id, dimension, severity, probability, evidence,
+                 justification, assessment_source)
+            VALUES (?, ?, ?, ?, ?, ?, 'assessed')
             """,
             [
                 (
@@ -456,6 +502,8 @@ def create_risk(
                     assessment["dimension"],
                     assessment["severity"],
                     assessment["probability"],
+                    assessment["evidence"],
+                    assessment["justification"],
                 )
                 for assessment in dimensions
             ],
@@ -488,11 +536,14 @@ def update_risk_dimensions(
         connection.executemany(
             """
             INSERT INTO risk_dimensions
-                (risco_id, dimension, severity, probability, assessment_source)
-            VALUES (?, ?, ?, ?, 'assessed')
+                (risco_id, dimension, severity, probability, evidence,
+                 justification, assessment_source)
+            VALUES (?, ?, ?, ?, ?, ?, 'assessed')
             ON CONFLICT(risco_id, dimension) DO UPDATE SET
                 severity = excluded.severity,
                 probability = excluded.probability,
+                evidence = excluded.evidence,
+                justification = excluded.justification,
                 assessment_source = 'assessed'
             """,
             [
@@ -501,6 +552,8 @@ def update_risk_dimensions(
                     assessment["dimension"],
                     assessment["severity"],
                     assessment["probability"],
+                    assessment["evidence"],
+                    assessment["justification"],
                 )
                 for assessment in dimensions
             ],
@@ -550,11 +603,14 @@ def update_risk(
         connection.executemany(
             """
             INSERT INTO risk_dimensions
-                (risco_id, dimension, severity, probability, assessment_source)
-            VALUES (?, ?, ?, ?, 'assessed')
+                (risco_id, dimension, severity, probability, evidence,
+                 justification, assessment_source)
+            VALUES (?, ?, ?, ?, ?, ?, 'assessed')
             ON CONFLICT(risco_id, dimension) DO UPDATE SET
                 severity = excluded.severity,
                 probability = excluded.probability,
+                evidence = excluded.evidence,
+                justification = excluded.justification,
                 assessment_source = 'assessed'
             """,
             [
@@ -563,6 +619,8 @@ def update_risk(
                     assessment["dimension"],
                     assessment["severity"],
                     assessment["probability"],
+                    assessment["evidence"],
+                    assessment["justification"],
                 )
                 for assessment in dimensions
             ],
@@ -580,6 +638,7 @@ def delete_risk(risk_id: int, database_path: Path = DATABASE_PATH) -> bool:
         "medidas_controle",
         "resultados_fair",
         "dimension_results_fair",
+        "dimension_results_matrix",
         "log_ocorrencias",
         "risk_dimensions",
     )
@@ -683,7 +742,10 @@ def _build_report(models: list[FairModel], rows: list[dict[str, Any]]) -> str:
     return f"<!doctype html><html><head><meta charset='utf-8'>{REPORT_CSS}</head><body>{html}</body></html>"
 
 
-def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
+def run_analysis(
+    database_path: Path = DATABASE_PATH,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> dict[str, Any]:
     global _latest_html_report, _latest_excel_report
 
     connection = sqlite3.connect(database_path)
@@ -694,6 +756,10 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
         )
         if risks.empty:
             raise ValueError("Não há riscos cadastrados para executar a análise.")
+        total_simulations = len(risks) * len(RISK_DIMENSIONS) * 2
+        completed_simulations = 0
+        if progress_callback is not None:
+            progress_callback(0, f"Preparando análise de {len(risks)} riscos.")
 
         assessments = pd.read_sql_query(
             """
@@ -731,7 +797,7 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             for dimension in RISK_DIMENSIONS
         }
         legacy_assessments = 0
-        for risk in risks.itertuples(index=False):
+        for risk_number, risk in enumerate(risks.itertuples(index=False), start=1):
             risk_assessments = assessments.loc[assessments["risco_id"] == risk.id]
             assessment_by_dimension = {
                 item.dimension: item
@@ -776,6 +842,15 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                     severity,
                     random_seed=random_seed,
                 )
+                completed_simulations += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        round(80 * completed_simulations / total_simulations),
+                        (
+                            f"Risco {risk_number}/{len(risks)}: {risk.titulo} · {dimension} · "
+                            f"simulação inerente ({completed_simulations}/{total_simulations})"
+                        ),
+                    )
                 residual_model = _build_model(
                     f"{risk.id} {dimension} Residual",
                     probability,
@@ -783,6 +858,15 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                     frequency_factor=1 - reduction,
                     random_seed=random_seed,
                 )
+                completed_simulations += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        round(80 * completed_simulations / total_simulations),
+                        (
+                            f"Risco {risk_number}/{len(risks)}: {risk.titulo} · {dimension} · "
+                            f"simulação residual ({completed_simulations}/{total_simulations})"
+                        ),
+                    )
                 inherent_values = inherent_model.export_results()["Risk"]
                 residual_values = residual_model.export_results()["Risk"]
                 matrix_score = severity * probability
@@ -939,6 +1023,8 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                 "Isso não significa ausência de risco."
             ),
         }
+        if progress_callback is not None:
+            progress_callback(90, "Consolidando os resultados FAIR e o parecer da carteira.")
 
         analyzed_at = datetime.now().astimezone().isoformat(timespec="seconds")
         connection.execute(
@@ -1003,6 +1089,8 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             ],
         )
         connection.commit()
+        if progress_callback is not None:
+            progress_callback(94, "Resultados e histórico salvos no banco de dados.")
 
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
@@ -1036,20 +1124,18 @@ def run_analysis(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
             encoding="utf-8",
         )
         (REPORTS_PATH / "relatorio_fair.xlsx").write_bytes(_latest_excel_report)
+        if progress_callback is not None:
+            progress_callback(98, "Relatórios HTML e Excel gerados.")
         return {"resumo": summary, "riscos": rows}
     finally:
         connection.close()
 
 
 def get_latest_html_report() -> str | None:
-    if _latest_html_report is not None:
-        return _latest_html_report
-    report_path = REPORTS_PATH / "relatorio_fair.html"
+    report_path = REPORTS_PATH / "relatorio_4ps.html"
     return report_path.read_text(encoding="utf-8") if report_path.is_file() else None
 
 
 def get_latest_excel_report() -> bytes | None:
-    if _latest_excel_report is not None:
-        return _latest_excel_report
-    report_path = REPORTS_PATH / "relatorio_fair.xlsx"
+    report_path = REPORTS_PATH / "relatorio_4ps.xlsx"
     return report_path.read_bytes() if report_path.is_file() else None

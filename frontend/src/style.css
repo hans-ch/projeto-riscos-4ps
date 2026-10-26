@@ -63,6 +63,12 @@ h1 span { color: var(--coral); }
 .inherited-notice > span { background: #ad8a4f; }
 .success-notice { border-color: #d3e6d9; color: #345d45; background: #eff7f0; }
 .success-notice > span { background: #4d946c; }
+.analysis-progress-panel { margin: -13px 0 19px; padding: 13px 15px; border: 1px solid #dce7df; border-radius: 6px; background: #fff; }
+.analysis-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #345348; font-size: 10px; }
+.analysis-progress-heading span { color: #285c49; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.analysis-progress-track { height: 8px; margin: 9px 0 7px; overflow: hidden; border-radius: 8px; background: #edf1ec; }
+.analysis-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #397966, #82ad8e); transition: width .3s ease; }
+.analysis-progress-panel > p { margin: 0; color: #849188; font-size: 9px; }
 .analysis-banner { display: flex; min-height: 57px; align-items: center; gap: 11px; margin-bottom: 17px; padding: 10px 15px; border: 1px solid #d3e6d9; border-radius: 6px; background: #eff7f0; }
 .check-mark { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: white; background: #4d946c; font-size: 12px; }
 .analysis-banner strong { font-size: 11px; }
@@ -76,11 +82,9 @@ h1 span { color: var(--coral); }
 .metric-card > strong { display: block; color: #1b4437; font: 600 22px "Segoe UI", sans-serif; letter-spacing: -.7px; }
 .metric-card small { display: block; margin-top: 5px; color: #98a199; font-size: 9px; }
 .content-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(240px, .9fr); gap: 14px; margin: 15px 0; }
-.analytics-grid, .comparison-grid, .benchmark-page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 15px 0; align-items: stretch; }
+.analytics-grid, .comparison-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 15px 0; align-items: stretch; }
 .dimension-comparison-section { margin: 15px 0; }
-.benchmark-disclaimer { margin: 12px 0; color: #89958e; font-size: 10px; line-height: 1.6; }
 .panel { min-width: 0; border: 1px solid #e4e8e1; border-radius: 7px; background: #fff; }
-.exposure-panel { padding: 20px 21px 15px; }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .panel-heading .eyebrow, .report-panel .eyebrow { margin: 0 0 6px; font-size: 8px; }
 .panel-heading h2, .report-panel h2 { margin: 0; font: 600 17px "Segoe UI", sans-serif; letter-spacing: -.45px; }
@@ -186,7 +190,7 @@ tbody tr:hover { background: #fbfcf9; }
   .page { width: min(100% - 7%, 1380px); }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .content-grid { grid-template-columns: 1fr; }
-  .analytics-grid, .comparison-grid, .benchmark-page-grid { grid-template-columns: 1fr; }
+  .analytics-grid, .comparison-grid { grid-template-columns: 1fr; }
   .risk-create-layout { grid-template-columns: 1fr; }
   .report-panel { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
   .report-art { grid-row: span 3; height: auto; min-height: 100px; margin: -20px 0 -20px -20px; }

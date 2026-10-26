@@ -8,7 +8,7 @@ defineEmits(["navigate"]);
 const items = [
   { label: "Visão geral", icon: "◫" },
   { label: "Cadastro de riscos", icon: "◇" },
-  { label: "Benchmark", icon: "⌁" },
+  { label: "Histórico", icon: "⌁" },
 ];
 </script>
 
@@ -31,7 +31,7 @@ const items = [
     </nav>
     <div class="sidebar-bottom">
       <span class="status-dot"></span>
-      <div><strong>Modelo OpenFAIR</strong><small>10 mil simulações por risco</small></div>
+      <div><strong>Matriz de risco 4Ps</strong><small>Notas e justificativas</small></div>
     </div>
   </aside>
 </template>
