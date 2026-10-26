@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, Request, build_opener
@@ -149,3 +150,100 @@ Retorne somente a justificativa, sem título, lista ou markdown.
     if not response:
         raise RuntimeError("A IA local não gerou uma justificativa final.")
     return response[:1200]
+
+
+def generate_resolution_suggestions(
+    *,
+    title: str,
+    category: str,
+    description: str | None,
+    dimensions: list[dict[str, Any]],
+) -> list[dict[str, str | int]]:
+    if not dimensions:
+        raise ValueError("Informe as avaliações das dimensões antes de solicitar recomendações.")
+
+    model = _get_installed_model()
+    dimension_context = "\n".join(
+        (
+            f"- {item['dimension']}: severidade {item['severity']}/5, "
+            f"probabilidade {item['probability']}/5, nota "
+            f"{item['matrix_score']}/25 ({item['classification']}); "
+            f"evidências: {item['evidence'] or 'não informadas'}; "
+            f"justificativa: {item['justification'] or 'não informada'}"
+        )
+        for item in dimensions
+    )
+    prompt = f"""
+Você auxilia na prevenção de riscos ocupacionais. Analise o risco completo
+considerando conjuntamente suas quatro dimensões 4Ps e sugira de 3 a 5
+recomendações práticas de prevenção, em português e em ordem de prioridade.
+Priorize medidas que eliminem ou reduzam o risco na origem e controles
+organizacionais; use EPI como complemento, não como única solução.
+Baseie-se somente nos dados informados: não invente causas, controles existentes,
+normas específicas ou fatos. Considere as notas para priorizar as ações.
+As recomendações são apoio e devem ser validadas por uma pessoa responsável.
+
+Risco: {title}
+Categoria: {category}
+Descrição: {description or "Não informada"}
+Avaliações das quatro dimensões:
+{dimension_context}
+
+Retorne um objeto JSON com a chave "suggestions", contendo uma lista de ações.
+Cada ação deve ter "action" (texto curto), "priority" (número de 1 a 5) e
+"justification" (explicação curta ligada às evidências).
+""".strip()
+
+    result = _request(
+        "/api/generate",
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.2},
+        },
+    )
+    response = result.get("response")
+    if not isinstance(response, str) or not response.strip():
+        raise RuntimeError("A IA local não gerou sugestões de resolução.")
+    response = response.strip()
+    if "</think>" in response:
+        response = response.rsplit("</think>", maxsplit=1)[-1].strip()
+    match = re.search(r"\{.*\}", response, re.DOTALL)
+    if not match:
+        raise RuntimeError("A IA local não retornou sugestões em formato JSON.")
+    try:
+        decoded = json.loads(match.group(0))
+    except json.JSONDecodeError as error:
+        raise RuntimeError("A IA local retornou um JSON inválido.") from error
+
+    suggestions = decoded.get("suggestions") if isinstance(decoded, dict) else None
+    if not isinstance(suggestions, list) or not 3 <= len(suggestions) <= 5:
+        raise RuntimeError("A IA local retornou uma quantidade inválida de sugestões.")
+
+    validated_suggestions: list[dict[str, str | int]] = []
+    for index, item in enumerate(suggestions, start=1):
+        if not isinstance(item, dict):
+            raise RuntimeError("A IA local retornou uma sugestão em formato inválido.")
+        action = item.get("action")
+        justification = item.get("justification")
+        priority = item.get("priority")
+        if (
+            not isinstance(action, str)
+            or not action.strip()
+            or not isinstance(justification, str)
+            or not justification.strip()
+            or not isinstance(priority, int)
+            or isinstance(priority, bool)
+            or not 1 <= priority <= 5
+        ):
+            raise RuntimeError("A IA local retornou campos inválidos nas sugestões.")
+        validated_suggestions.append(
+            {
+                "action": action.strip()[:300],
+                "priority": priority if priority == index else index,
+                "justification": justification.strip()[:700],
+            }
+        )
+    return validated_suggestions

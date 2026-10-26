@@ -139,7 +139,7 @@ def run_rating_analysis(
         "justificativas_pendentes": missing_justification_count,
         "criterio": (
             "Nota de cada P = severidade × probabilidade. Baixo: 1–7; "
-            "médio: 8–14; alto: 15–25. A carteira é favorável somente "
+            "médio: 8–14; alto: 15–25. O painel é favorável somente "
             "quando todos os quatro P’s de cada risco ficam na faixa baixa."
         ),
         "justificativa": (

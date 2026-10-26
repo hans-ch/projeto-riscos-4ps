@@ -414,7 +414,7 @@ def _build_risk_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         "criterio": (
             "Pontuação da dimensão = severidade × probabilidade. "
             "Baixo: 1–7; médio: 8–14; alto: 15–25. "
-            "A carteira é favorável somente quando todos os quatro P’s "
+            "o painel é favorável somente quando todos os quatro P’s "
             "estão na faixa baixa."
         ),
     }
@@ -1024,7 +1024,7 @@ def run_analysis(
             ),
         }
         if progress_callback is not None:
-            progress_callback(90, "Consolidando os resultados FAIR e o parecer da carteira.")
+            progress_callback(90, "Consolidando os resultados FAIR e o parecer no painel.")
 
         analyzed_at = datetime.now().astimezone().isoformat(timespec="seconds")
         connection.execute(

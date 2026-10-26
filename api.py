@@ -20,6 +20,7 @@ from analysis_service import (
 from analysis_service import _classify_matrix
 from local_ai import (
     generate_dimension_justification,
+    generate_resolution_suggestions as generate_local_resolution_suggestions,
     get_local_ai_status,
 )
 from rating_analysis import get_rating_history, run_rating_analysis
@@ -61,6 +62,46 @@ class DimensionExplanationRequest(BaseModel):
     evidence: str = Field(min_length=10, max_length=1200)
 
     @field_validator("title", "category", "evidence")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Este campo não pode ficar vazio.")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def strip_description(cls, value: str | None) -> str | None:
+        return value.strip() or None if value else None
+
+
+class RiskPreventionDimension(BaseModel):
+    dimension: Literal[
+        "Pessoas",
+        "Processos",
+        "Produtos",
+        "Políticas governamentais",
+    ]
+    severity: int = Field(ge=1, le=5)
+    probability: int = Field(ge=1, le=5)
+    evidence: str = Field(default="", max_length=1200)
+    justification: str = Field(default="", max_length=1200)
+
+
+class RiskPreventionRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+    dimensions: list[RiskPreventionDimension] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_all_dimensions(self) -> "RiskPreventionRequest":
+        submitted = [assessment.dimension for assessment in self.dimensions]
+        if len(submitted) != len(RISK_DIMENSIONS) or set(submitted) != set(RISK_DIMENSIONS):
+            raise ValueError("Informe uma pontuação para cada uma das quatro dimensões.")
+        return self
+
+    @field_validator("title", "category")
     @classmethod
     def strip_required_text(cls, value: str) -> str:
         value = value.strip()
@@ -233,6 +274,34 @@ def generate_risk_dimension_justification(
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return {"justification": explanation}
+
+
+@app.post("/api/ai/resolution-suggestions")
+def generate_risk_prevention_suggestions(
+    request: RiskPreventionRequest,
+) -> dict[str, list[dict[str, str | int]]]:
+    """Gera recomendações de prevenção com base na avaliação completa dos 4Ps."""
+    try:
+        suggestions = generate_local_resolution_suggestions(
+            title=request.title,
+            category=request.category,
+            description=request.description or None,
+            dimensions=[
+                {
+                    **dimension.model_dump(),
+                    "matrix_score": dimension.severity * dimension.probability,
+                    "classification": _classify_matrix(
+                        dimension.severity * dimension.probability
+                    ),
+                }
+                for dimension in request.dimensions
+            ],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {"suggestions": suggestions}
 
 
 @app.get("/api/analysis/progress")

@@ -217,7 +217,7 @@ async function deleteRisk(risk) {
 
     <section class="panel risks-panel registered-risks-panel">
       <div class="panel-heading table-heading">
-        <div><p class="eyebrow">CARTEIRA DE RISCOS</p><h2>Riscos cadastrados <span class="count-pill">{{ risks.length }}</span></h2></div>
+        <div><p class="eyebrow">PAINEL DE RISCOS</p><h2>Riscos cadastrados <span class="count-pill">{{ risks.length }}</span></h2></div>
         <label class="search-box"><span>⌕</span><input v-model="query" placeholder="Buscar risco..." /></label>
       </div>
       <p v-if="deleteError" class="form-error delete-error" role="alert">{{ deleteError }}</p>

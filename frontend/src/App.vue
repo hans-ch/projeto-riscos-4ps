@@ -95,7 +95,7 @@ async function executeAnalysis() {
     };
     history.value = await requestJson("/api/analysis/history");
     registeredRisks.value = await requestJson("/api/risks");
-    success.value = "Análise concluída e adicionada ao histórico da carteira.";
+    success.value = "Análise concluída e adicionada ao histórico do painel.";
   } catch (cause) {
     error.value = cause.message || "Não foi possível executar a análise.";
   } finally {
@@ -149,7 +149,7 @@ onMounted(async () => {
 
     <main class="main-content">
       <header class="topbar">
-        <div class="breadcrumb">Carteira <span>/</span> <strong>{{ activeView }}</strong></div>
+        <div class="breadcrumb">Painel <span>/</span> <strong>{{ activeView }}</strong></div>
         <div class="topbar-meta"><span class="live-dot"></span> Base local SQLite <i></i> Avaliação matricial 4Ps</div>
       </header>
 

@@ -174,6 +174,7 @@ checkAiStatus();
 
 <style scoped>
 .dimension-score-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 6px 0 17px; }
+
 .dimension-score { min-width: 0; margin: 0; padding: 12px; border: 1px solid #e6ebe4; border-radius: 5px; background: #fbfcf9; }
 .dimension-score legend { padding: 0 5px; color: #385848; font-size: 9px; font-weight: 700; }
 .dimension-score legend span { margin-right: 6px; color: #c38461; font-size: 8px; }
@@ -190,6 +191,7 @@ checkAiStatus();
 .ai-ready, .ai-unavailable, .ai-error { color: #74867b; font-size: 7px; line-height: 1.4; }
 .ai-unavailable, .ai-error { color: #a55b46; }
 .ai-error { margin: 5px 0 0; }
+
 @media (max-width: 700px) {
   .dimension-score-grid { grid-template-columns: 1fr; }
 }
