@@ -12,8 +12,11 @@ Aplicação Vue 3 e FastAPI para avaliar riscos nas dimensões Pessoas, Processo
 ## Executar
 
 Na raiz do projeto:
-
 ```powershell
+python -m pip install streamlit
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install uv
 uv sync
 uv run python app.py
 ```
